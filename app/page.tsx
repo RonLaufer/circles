@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.1.3";
+const APP_VERSION = "v1.0.1.4";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
@@ -694,8 +694,40 @@ export default function Home() {
     clearJoinFromAddress();
   }
 
+  async function ensureProfileBeforeJoining(currentUser: User) {
+    const { data: existingProfile, error: profileCheckError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", currentUser.id)
+      .maybeSingle<{ id: string }>();
+
+    if (profileCheckError) {
+      console.error("Checking profile before joining failed", profileCheckError);
+      return false;
+    }
+
+    if (existingProfile) return true;
+
+    const googleProfile = getGoogleProfile(currentUser);
+    const { error: profileInsertError } = await supabase.from("profiles").insert({
+      id: currentUser.id,
+      email: currentUser.email ?? null,
+      full_name: googleProfile.fullName,
+      google_avatar_url: googleProfile.avatarUrl,
+    });
+
+    if (profileInsertError && profileInsertError.code !== "23505") {
+      console.error("Creating profile before joining failed", profileInsertError);
+      return false;
+    }
+
+    return true;
+  }
+
   async function joinInvitedCircle() {
     if (!user || !invitedCommunity) return;
+
+    setMessage(null);
 
     const existingMembership = communities.find(
       (community) => community.id === invitedCommunity.id,
@@ -709,6 +741,15 @@ export default function Home() {
     }
 
     setJoinBusy(true);
+
+    const profileReady = await ensureProfileBeforeJoining(user);
+    if (!profileReady) {
+      setMessageTone("error");
+      setMessage("לא הצלחנו להכין את הפרופיל להצטרפות. נסו שוב.");
+      setJoinBusy(false);
+      return;
+    }
+
     const { data, error } = await supabase.rpc("join_community_by_token", {
       target_share_token: invitedCommunity.share_token,
     });
