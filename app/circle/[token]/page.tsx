@@ -56,6 +56,13 @@ export async function generateMetadata({
     title: `${community.name} | מעגלים`,
     description,
     alternates: { canonical: url },
+    applicationName: community.name,
+    appleWebApp: {
+      capable: true,
+      title: community.name,
+      statusBarStyle: "default",
+    },
+    manifest: `/api/manifest?circle=${encodeURIComponent(community.share_token)}`,
     openGraph: {
       type: "website",
       locale: "he_IL",

@@ -2667,3 +2667,646 @@ html.is-localhost {
   width: 48px;
   height: 48px;
 }
+
+/* Phase 30: event participation */
+.event-card-clickable {
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.event-card-clickable:hover,
+.event-card-clickable:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+  outline: none;
+}
+
+.event-screen-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--background);
+  padding: 24px 14px 40px;
+}
+
+.event-detail-panel {
+  width: min(100%, 980px);
+  min-height: calc(100svh - 64px);
+  margin: 0 auto;
+  padding: 28px;
+  border-radius: 30px;
+  background: #fff;
+  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.12);
+  outline: 1px solid var(--line);
+}
+
+.event-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.event-detail-image-button {
+  display: block;
+  width: 100%;
+  max-height: 460px;
+  margin-bottom: 24px;
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--soft);
+}
+
+.event-detail-image {
+  display: block;
+  width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+}
+
+.event-detail-heading {
+  display: grid;
+  gap: 8px;
+}
+
+.event-detail-heading h1 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 3.25rem);
+  line-height: 1.12;
+}
+
+.event-detail-heading time,
+.event-detail-location {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.event-detail-location {
+  color: #475569;
+}
+
+.event-detail-description {
+  margin-top: 20px;
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.attendance-summary-section,
+.my-attendance-section,
+.event-attendees-section {
+  margin-top: 28px;
+  padding: 24px;
+  border-radius: 24px;
+  background: var(--soft);
+  outline: 1px solid var(--line);
+}
+
+.section-heading-compact h2,
+.attendance-group h3 {
+  margin: 0;
+}
+
+.attendance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.attendance-summary-card {
+  display: grid;
+  place-items: center;
+  min-height: 112px;
+  padding: 16px;
+  border-radius: 20px;
+  background: #fff;
+  text-align: center;
+  outline: 1px solid var(--line);
+}
+
+.attendance-summary-card strong {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.attendance-summary-card span {
+  margin-top: 9px;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.attendance-summary-total {
+  background: var(--amber-soft);
+  outline-color: #fcd34d;
+}
+
+.attendance-status-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.attendance-status-button {
+  min-height: 48px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 700;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.attendance-status-button:hover {
+  transform: translateY(-1px);
+  border-color: #94a3b8;
+}
+
+.attendance-status-button.is-selected {
+  border-color: #eab308;
+  background: var(--amber);
+}
+
+.attendance-form-grid {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.attendance-form-grid label,
+.attendance-note-field {
+  display: grid;
+  gap: 7px;
+  font-weight: 650;
+}
+
+.attendance-form-grid input,
+.attendance-note-field textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  padding: 12px 14px;
+  font-size: 0.95rem;
+}
+
+.attendance-note-field {
+  margin-top: 14px;
+}
+
+.attendance-save-button {
+  margin-top: 18px;
+}
+
+.attendance-empty-state {
+  margin: 18px 0 0;
+  color: var(--muted);
+}
+
+.attendance-groups {
+  display: grid;
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.attendance-group {
+  display: grid;
+  gap: 12px;
+}
+
+.attendance-people-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.attendance-person-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: #fff;
+  outline: 1px solid var(--line);
+}
+
+.attendance-person-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.attendance-person-copy strong {
+  font-size: 1rem;
+}
+
+.attendance-person-copy span {
+  color: #475569;
+  font-size: 0.86rem;
+}
+
+.attendance-person-copy p {
+  margin: 6px 0 0;
+  color: #334155;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .event-screen-backdrop {
+    padding: 0;
+  }
+
+  .event-detail-panel {
+    min-height: 100svh;
+    padding: 18px 14px 34px;
+    border-radius: 0;
+    outline: 0;
+  }
+
+  .event-detail-toolbar {
+    align-items: stretch;
+  }
+
+  .attendance-summary-section,
+  .my-attendance-section,
+  .event-attendees-section {
+    padding: 18px 14px;
+    border-radius: 20px;
+  }
+
+  .attendance-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attendance-status-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .attendance-form-grid,
+  .attendance-people-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* circles31: event times, capacity, event sharing and dynamic install names */
+.event-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.event-capacity-label,
+.event-detail-capacity,
+.invite-event-date,
+.invite-event-location,
+.share-event-date,
+.share-event-location {
+  color: #111111;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.event-capacity-label {
+  display: block;
+  margin-top: 6px;
+  font-weight: 700;
+}
+
+.event-detail-capacity {
+  width: max-content;
+  max-width: 100%;
+  border-radius: 999px;
+  background: var(--amber-soft);
+  padding: 7px 12px;
+  font-weight: 700;
+}
+
+.event-time-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.event-capacity-setting {
+  display: grid;
+  gap: 10px;
+}
+
+.participant-limit-field {
+  width: min(100%, 260px);
+}
+
+.invite-event-date,
+.share-event-date {
+  margin: 10px 0 0;
+  font-weight: 700;
+}
+
+.invite-event-location,
+.share-event-location {
+  margin: 5px 0 0;
+}
+
+.login-invite-card small {
+  display: block;
+  margin-top: 5px;
+  color: #111111;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 680px) {
+  .event-detail-toolbar {
+    flex-direction: column;
+  }
+
+  .event-detail-actions {
+    width: 100%;
+  }
+
+  .event-detail-actions button {
+    flex: 1;
+  }
+
+  .event-time-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* circles32: refined layout, optional end time and bring table */
+.communities-card {
+  outline: 0;
+  box-shadow: none;
+}
+
+.circle-events-section {
+  border-top: 0;
+  padding-top: 10px;
+}
+
+.brand-lockup-small .app-version {
+  margin-top: 2px;
+  font-size: 0.52rem;
+}
+
+.login-main-title {
+  font-size: clamp(1.65rem, 5vw, 2.45rem) !important;
+  margin-bottom: 34px !important;
+}
+
+.member-joined-at,
+.attendance-registered-at {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.74rem !important;
+  font-weight: 500 !important;
+  color: #475569 !important;
+}
+
+.attendance-save-button:disabled {
+  cursor: default;
+  transform: none;
+}
+
+.attendance-form-grid input {
+  min-height: 48px;
+}
+
+.event-time-grid input,
+.event-modal-card input,
+.event-modal-card select,
+.event-modal-card textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bring-setting-panel {
+  display: grid;
+  gap: 12px;
+  border-radius: 18px;
+  background: #e9edf1;
+  padding: 16px;
+}
+
+.bring-setting-panel > small {
+  line-height: 1.55;
+}
+
+.bring-needs-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.copy-bring-table-row,
+.bring-need-add-row,
+.free-bring-add-row,
+.bring-claim-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.copy-bring-table-row select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #b8c1ca;
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px 12px;
+  color: #111;
+  font: inherit;
+}
+
+.bring-need-add-row {
+  grid-template-columns: minmax(0, 1fr) 105px auto;
+}
+
+.bring-need-add-row label,
+.free-bring-add-row label,
+.bring-claim-row label {
+  display: grid;
+  gap: 7px;
+  font-weight: 650;
+}
+
+.bring-needs-draft-list,
+.planned-bring-list,
+.free-bring-list {
+  display: grid;
+  gap: 10px;
+}
+
+.bring-need-draft-row,
+.free-bring-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 14px;
+  background: #fff;
+  padding: 11px 12px;
+  outline: 1px solid var(--line);
+}
+
+.bring-need-draft-row > span,
+.free-bring-row > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.event-bring-section {
+  margin-top: 28px;
+  padding: 24px;
+  border-radius: 24px;
+  background: var(--soft);
+  outline: 1px solid var(--line);
+}
+
+.bring-loading {
+  min-height: 110px;
+}
+
+.bring-need-card {
+  display: grid;
+  gap: 12px;
+  border-radius: 18px;
+  background: #fff;
+  padding: 16px;
+  outline: 1px solid var(--line);
+}
+
+.bring-need-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bring-need-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.bring-need-heading strong {
+  font-size: 1.02rem;
+}
+
+.bring-need-heading span,
+.free-bring-row span {
+  font-size: 0.82rem;
+}
+
+.bring-complete,
+.bring-missing {
+  flex: none;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.bring-complete {
+  background: #dcfce7;
+}
+
+.bring-missing {
+  background: #fef3c7;
+}
+
+.bring-contributors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.bring-contributors-list span {
+  border-radius: 999px;
+  background: #eef2f7;
+  padding: 6px 9px;
+  font-size: 0.78rem;
+}
+
+.bring-claim-row {
+  grid-template-columns: minmax(120px, 170px) auto auto;
+}
+
+.bring-claim-row input,
+.free-bring-add-row input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cbd5e1;
+  border-radius: 13px;
+  background: #fff;
+  padding: 9px 11px;
+  color: #111;
+  font: inherit;
+}
+
+.free-bring-area {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.free-bring-area h3,
+.free-bring-area p {
+  margin: 0;
+}
+
+.free-bring-row > div {
+  display: grid;
+  gap: 3px;
+}
+
+.free-bring-add-row {
+  grid-template-columns: minmax(0, 1fr) 105px auto;
+  margin-top: 4px;
+}
+
+@media (max-width: 680px) {
+  .modal-card,
+  .event-modal-card {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+    padding: 22px 14px;
+    overflow-x: hidden;
+  }
+
+  .modal-form,
+  .profile-form,
+  .event-time-grid,
+  .bring-setting-panel,
+  .bring-needs-editor {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .copy-bring-table-row,
+  .bring-need-add-row,
+  .free-bring-add-row,
+  .bring-claim-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .copy-bring-table-row button,
+  .bring-need-add-row button,
+  .free-bring-add-row button,
+  .bring-claim-row button {
+    width: 100%;
+  }
+
+  .bring-need-heading {
+    flex-direction: column;
+  }
+
+  .event-bring-section {
+    padding: 18px 14px;
+    border-radius: 20px;
+  }
+}

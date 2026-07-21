@@ -5,7 +5,12 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://circles-community.vercel.app"),
   title: "מעגלים | Circles",
   description: "אנשים, מעגלים ואירועים במקום אחד.",
-  applicationName: "Circles",
+  applicationName: "מעגלים",
+  appleWebApp: {
+    capable: true,
+    title: "מעגלים",
+    statusBarStyle: "default",
+  },
   icons: {
     icon: "/circles-system-icon-512.png",
     shortcut: "/favicon-32x32.png",
