@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.2.8";
+const APP_VERSION = "v1.0.2.9";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -124,7 +124,7 @@ function CirclesMark() {
 }
 
 function getCommunityImageUrl(logoUrl: string | null) {
-  return logoUrl;
+  return logoUrl ?? "";
 }
 
 function formatSupabaseError(error: unknown) {
