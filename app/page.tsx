@@ -19,7 +19,8 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.1.6";
+const APP_VERSION = "v1.0.1.7";
+const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
@@ -339,6 +340,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [communitiesLoading, setCommunitiesLoading] = useState(false);
+  const [communitiesReady, setCommunitiesReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingCommunity, setSavingCommunity] = useState(false);
@@ -346,6 +348,7 @@ export default function Home() {
   const [joinRequests, setJoinRequests] = useState<CommunityJoinRequest[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [reviewingUserId, setReviewingUserId] = useState<string | null>(null);
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null);
   const [shareCommunity, setShareCommunity] = useState<Community | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(null);
@@ -364,6 +367,7 @@ export default function Home() {
   const loadCommunities = useCallback(
     async (currentUser: User) => {
       setCommunitiesLoading(true);
+      setCommunitiesReady(false);
 
       const { data: memberships, error: membershipsError } = await supabase
         .from("community_members")
@@ -375,12 +379,14 @@ export default function Home() {
         setMessageTone("error");
         setMessage("לא הצלחנו לטעון את המעגלים שלך.");
         setCommunitiesLoading(false);
+        setCommunitiesReady(true);
         return;
       }
 
       if (!memberships || memberships.length === 0) {
         setCommunities([]);
         setCommunitiesLoading(false);
+        setCommunitiesReady(true);
         return;
       }
 
@@ -402,6 +408,7 @@ export default function Home() {
         setMessageTone("error");
         setMessage("לא הצלחנו לטעון את פרטי המעגלים.");
         setCommunitiesLoading(false);
+        setCommunitiesReady(true);
         return;
       }
 
@@ -412,6 +419,7 @@ export default function Home() {
         })),
       );
       setCommunitiesLoading(false);
+      setCommunitiesReady(true);
     },
     [supabase],
   );
@@ -633,6 +641,7 @@ export default function Home() {
         setFullName("");
         setAbout("");
         setCommunities([]);
+        setCommunitiesReady(false);
         setSelectedCommunityId(null);
       }
     });
@@ -651,6 +660,29 @@ export default function Home() {
 
     void loadCommunityPeople(selected.id, selected.role);
   }, [communities, loadCommunityPeople, selectedCommunityId]);
+
+  useEffect(() => {
+    if (!user || !communitiesReady || !pendingShareToken || !invitedCommunity) return;
+
+    const existingMembership = communities.find(
+      (community) => community.id === invitedCommunity.id,
+    );
+
+    if (!existingMembership) return;
+
+    queueMicrotask(() => {
+      setSelectedCommunityId(existingMembership.id);
+      setInviteDismissed(true);
+      window.history.replaceState({}, "", window.location.pathname);
+      setPendingShareToken(null);
+    });
+  }, [
+    communities,
+    communitiesReady,
+    invitedCommunity,
+    pendingShareToken,
+    user,
+  ]);
 
   async function signInWithGoogle() {
     setAuthBusy(true);
@@ -842,6 +874,53 @@ export default function Home() {
     }
 
     setReviewingUserId(null);
+  }
+
+  async function removeCommunityMember(member: CommunityMember) {
+    const currentCommunity = communities.find(
+      (community) => community.id === selectedCommunityId,
+    );
+    if (!currentCommunity || !user) return;
+
+    const isSystemAdmin = user.email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
+    const isCircleCreator = currentCommunity.created_by === user.id;
+
+    if (!isSystemAdmin && !isCircleCreator) {
+      setMessageTone("error");
+      setMessage("אין לך הרשאה להסיר חברים מהמעגל.");
+      return;
+    }
+
+    if (member.role === "owner" || member.user_id === currentCommunity.created_by) {
+      setMessageTone("error");
+      setMessage("לא ניתן להסיר את יוצר המעגל.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `להסיר את ${member.full_name} מהמעגל? החברות תימחק ממסד הנתונים.`,
+    );
+    if (!confirmed) return;
+
+    setRemovingUserId(member.user_id);
+    setMessage(null);
+
+    const { error } = await supabase.rpc("remove_community_member", {
+      target_community_id: currentCommunity.id,
+      target_user_id: member.user_id,
+    });
+
+    if (error) {
+      console.error("Removing circle member failed", error);
+      setMessageTone("error");
+      setMessage(`לא הצלחנו להסיר את החבר. ${formatSupabaseError(error)}`);
+    } else {
+      setMessageTone("success");
+      setMessage(`${member.full_name} הוסר מהמעגל.`);
+      await loadCommunityPeople(currentCommunity.id, currentCommunity.role);
+    }
+
+    setRemovingUserId(null);
   }
 
   function openShareScreen(community: Community) {
@@ -1306,6 +1385,11 @@ export default function Home() {
   const invitedMembership = invitedCommunity
     ? communities.find((community) => community.id === invitedCommunity.id) ?? null
     : null;
+  const isSystemAdmin = user.email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
+  const canRemoveCommunityMembers = Boolean(
+    selectedCommunity &&
+      (isSystemAdmin || selectedCommunity.created_by === user.id),
+  );
   const shareUrl = shareCommunity
     ? getCommunityShareUrl(shareCommunity.share_token)
     : "";
@@ -1500,6 +1584,19 @@ export default function Home() {
                         {member.city && <span className="member-city">{member.city}</span>}
                         {member.phone && <PhoneLink phone={member.phone} />}
                       </div>
+                      {canRemoveCommunityMembers &&
+                        member.role !== "owner" &&
+                        member.user_id !== selectedCommunity.created_by &&
+                        member.user_id !== user.id && (
+                          <button
+                            type="button"
+                            className="member-remove-button"
+                            onClick={() => void removeCommunityMember(member)}
+                            disabled={removingUserId === member.user_id}
+                          >
+                            {removingUserId === member.user_id ? "מסירים..." : "הסרה"}
+                          </button>
+                        )}
                     </article>
                   ))}
                 </div>
@@ -1766,7 +1863,12 @@ export default function Home() {
 
       </div>
 
-      {pendingShareToken && !inviteDismissed && (inviteLoading || invitedCommunity) && (
+      {pendingShareToken &&
+        !inviteDismissed &&
+        communitiesReady &&
+        Boolean(invitedCommunity) &&
+        !invitedMembership &&
+        (inviteLoading || invitedCommunity) && (
         <div className="modal-backdrop" role="presentation" onMouseDown={closeInvite}>
           <section
             className="modal-card invite-modal-card"

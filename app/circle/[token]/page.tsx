@@ -3,7 +3,7 @@
 import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { RichText } from "@/app/components/RichText";
 import { createClient } from "@/lib/supabase/server";
 
@@ -86,6 +86,22 @@ export default async function SharedCirclePage({
   const community = await getSharedCommunity(token);
 
   if (!community) notFound();
+
+  const supabase = await createClient();
+  const { data: authData } = await supabase.auth.getUser();
+
+  if (authData.user) {
+    const { data: membership } = await supabase
+      .from("community_members")
+      .select("community_id")
+      .eq("community_id", community.id)
+      .eq("user_id", authData.user.id)
+      .maybeSingle();
+
+    if (membership) {
+      redirect(`/?join=${community.share_token}`);
+    }
+  }
 
   return (
     <main className="public-circle-page">
