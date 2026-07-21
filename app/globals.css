@@ -118,38 +118,12 @@ button:disabled {
   font-size: 0.62rem;
 }
 
-.circles-mark {
-  position: relative;
+.brand-logo-image {
   width: 54px;
-  height: 48px;
+  height: 54px;
+  object-fit: contain;
   flex: none;
-}
-
-.circle {
-  position: absolute;
-  width: 31px;
-  height: 31px;
-  border: 4px solid;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.48);
-}
-
-.circle-one {
-  top: 0;
-  right: 12px;
-  border-color: #f59e0b;
-}
-
-.circle-two {
-  top: 17px;
-  right: 0;
-  border-color: #38bdf8;
-}
-
-.circle-three {
-  top: 17px;
-  right: 24px;
-  border-color: #34d399;
+  display: block;
 }
 
 .eyebrow,
@@ -2246,9 +2220,9 @@ html.is-localhost {
   background: #ffffff;
   color: #111111;
   padding: 7px 11px;
-  font: inherit;
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
   font-size: 0.75rem;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -2266,4 +2240,430 @@ html.is-localhost {
     padding: 6px 9px;
     font-size: 0.72rem;
   }
+}
+
+/* circles21: modern confirmations and member role management */
+.member-management-actions {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 7px;
+}
+
+.member-role-button,
+.leave-circle-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111111;
+  padding: 7px 11px;
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.member-role-button:hover:not(:disabled),
+.leave-circle-button:hover:not(:disabled) {
+  background: var(--soft);
+}
+
+.member-role-button:disabled,
+.leave-circle-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.leave-circle-button {
+  border-color: #ef4444;
+}
+
+.confirmation-backdrop {
+  z-index: 120;
+}
+
+.confirmation-dialog {
+  width: min(calc(100% - 28px), 430px);
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background: #ffffff;
+  padding: 28px;
+  text-align: center;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.confirmation-symbol {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+  border-radius: 18px;
+  background: var(--soft);
+  color: #111111;
+  font-size: 1.55rem;
+  font-weight: 900;
+}
+
+.confirmation-symbol-danger {
+  background: #fee2e2;
+}
+
+.confirmation-dialog h2 {
+  margin: 0;
+  color: #111111;
+  font-size: 1.35rem;
+}
+
+.confirmation-dialog p {
+  margin: 10px 0 0;
+  color: #111111;
+  line-height: 1.65;
+  font-size: 0.92rem;
+}
+
+.confirmation-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.confirmation-no-button,
+.confirmation-yes-button {
+  min-height: 48px;
+  border-radius: 999px;
+  padding: 10px 18px;
+  color: #111111;
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.confirmation-no-button {
+  border: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.confirmation-no-button:hover:not(:disabled) {
+  background: var(--soft);
+}
+
+.confirmation-yes-button {
+  border: 1px solid #e5b900;
+  background: var(--primary);
+}
+
+.confirmation-danger-button {
+  border-color: #ef4444;
+  background: #ef4444;
+}
+
+.confirmation-no-button:disabled,
+.confirmation-yes-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+@media (max-width: 760px) {
+  .member-card {
+    flex-wrap: wrap;
+  }
+
+  .member-management-actions {
+    width: 100%;
+    margin-inline-start: 0;
+    padding-top: 4px;
+  }
+
+  .member-management-actions button {
+    flex: 1;
+  }
+}
+
+@media (max-width: 520px) {
+  .community-toolbar-actions {
+    flex-wrap: wrap;
+  }
+
+  .confirmation-dialog {
+    padding: 24px 20px;
+  }
+}
+
+
+/* circles22: simpler login and full-aspect circle images in the circles list */
+.community-card {
+  grid-template-columns: 104px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.community-card-no-image {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.community-thumb-button {
+  width: 104px;
+  height: auto;
+  min-height: 0;
+  align-self: center;
+  overflow: visible;
+  border-radius: 17px;
+}
+
+.community-thumb-image {
+  width: 104px;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+  border-radius: 17px;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 680px) {
+  .community-card {
+    grid-template-columns: 92px minmax(0, 1fr) auto;
+  }
+
+  .community-card-no-image {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .community-thumb-button,
+  .community-thumb-image {
+    width: 92px;
+    height: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .community-card {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+
+  .community-card-no-image {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .community-thumb-button,
+  .community-thumb-image {
+    width: 86px;
+    height: auto;
+  }
+}
+
+
+/* circles23: keep member and confirmation actions in the application font */
+.member-role-button,
+.member-remove-button,
+.leave-circle-button,
+.confirmation-no-button,
+.confirmation-yes-button {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif !important;
+  font-style: normal;
+  font-variant: normal;
+  letter-spacing: normal;
+}
+
+/* circles24: community events */
+.circle-events-section {
+  margin-top: 30px;
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+}
+
+.circle-events-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.circle-events-heading h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.events-loading {
+  min-height: 130px;
+}
+
+.events-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  margin-top: 17px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--soft);
+  padding: 28px 18px;
+  text-align: center;
+}
+
+.events-empty-state strong {
+  font-size: 1.05rem;
+}
+
+.events-empty-state p {
+  margin: 0 0 5px;
+  color: #111111;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.events-groups {
+  display: grid;
+  gap: 26px;
+  margin-top: 20px;
+}
+
+.events-group h3 {
+  margin: 0 0 11px;
+  font-size: 1rem;
+}
+
+.events-list {
+  display: grid;
+  gap: 12px;
+}
+
+.circle-event-card {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.circle-event-card-no-image {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.past-event-card {
+  background: #f7f8f9;
+}
+
+.event-card-image-button {
+  width: 180px;
+  max-width: 100%;
+  display: block;
+  border-radius: 14px;
+  overflow: hidden;
+  background: transparent;
+}
+
+.event-card-image {
+  width: 180px;
+  max-width: 100%;
+  height: auto;
+  max-height: 230px;
+  display: block;
+  border-radius: 14px;
+  object-fit: contain;
+}
+
+.event-card-copy {
+  min-width: 0;
+}
+
+.event-card-copy h4 {
+  margin: 0;
+  font-size: 1.12rem;
+  line-height: 1.35;
+}
+
+.event-card-copy time,
+.event-location {
+  display: block;
+  margin-top: 6px;
+  color: #111111;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.event-card-copy time {
+  font-weight: 700;
+}
+
+.event-location::before {
+  content: "מיקום: ";
+  font-weight: 700;
+}
+
+.event-description {
+  margin-top: 10px;
+  font-size: 0.88rem;
+}
+
+.event-edit-button {
+  white-space: nowrap;
+}
+
+.event-modal-card {
+  width: min(100%, 680px);
+}
+
+.selected-event-image-button {
+  width: max-content;
+  max-width: 100%;
+  display: block;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.selected-event-image {
+  width: auto;
+  max-width: 100%;
+  max-height: 320px;
+  display: block;
+  object-fit: contain;
+}
+
+.profile-form input[type="datetime-local"] {
+  direction: ltr;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .circle-event-card,
+  .circle-event-card-no-image {
+    grid-template-columns: 1fr;
+  }
+
+  .event-card-image-button,
+  .event-card-image {
+    width: 100%;
+  }
+
+  .event-card-image {
+    max-height: 330px;
+  }
+
+  .event-edit-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .circle-events-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .circle-events-heading .primary-button {
+    width: 100%;
+  }
+}
+
+.brand-lockup-small .brand-logo-image {
+  width: 48px;
+  height: 48px;
 }
