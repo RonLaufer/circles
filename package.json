@@ -1,6 +1,6 @@
 {
   "name": "circles",
-  "version": "1.0.1-4",
+  "version": "1.0.1-5",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.1.4";
+const APP_VERSION = "v1.0.1.5";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
@@ -101,6 +101,26 @@ function CirclesMark() {
       <span className="circle circle-three" />
     </div>
   );
+}
+
+function formatSupabaseError(error: unknown) {
+  if (!error || typeof error !== "object") return "שגיאה לא ידועה";
+
+  const candidate = error as {
+    code?: string;
+    message?: string;
+    details?: string;
+    hint?: string;
+  };
+
+  return [
+    candidate.code ? `קוד: ${candidate.code}` : null,
+    candidate.message ? `הודעה: ${candidate.message}` : null,
+    candidate.details ? `פרטים: ${candidate.details}` : null,
+    candidate.hint ? `הנחיה: ${candidate.hint}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ") || "שגיאה לא ידועה";
 }
 
 function getGoogleProfile(user: User) {
@@ -703,10 +723,10 @@ export default function Home() {
 
     if (profileCheckError) {
       console.error("Checking profile before joining failed", profileCheckError);
-      return false;
+      return formatSupabaseError(profileCheckError);
     }
 
-    if (existingProfile) return true;
+    if (existingProfile) return null;
 
     const googleProfile = getGoogleProfile(currentUser);
     const { error: profileInsertError } = await supabase.from("profiles").insert({
@@ -718,10 +738,10 @@ export default function Home() {
 
     if (profileInsertError && profileInsertError.code !== "23505") {
       console.error("Creating profile before joining failed", profileInsertError);
-      return false;
+      return formatSupabaseError(profileInsertError);
     }
 
-    return true;
+    return null;
   }
 
   async function joinInvitedCircle() {
@@ -742,10 +762,10 @@ export default function Home() {
 
     setJoinBusy(true);
 
-    const profileReady = await ensureProfileBeforeJoining(user);
-    if (!profileReady) {
+    const profileError = await ensureProfileBeforeJoining(user);
+    if (profileError) {
       setMessageTone("error");
-      setMessage("לא הצלחנו להכין את הפרופיל להצטרפות. נסו שוב.");
+      setMessage(`לא הצלחנו להכין את הפרופיל להצטרפות. ${profileError}`);
       setJoinBusy(false);
       return;
     }
@@ -757,7 +777,11 @@ export default function Home() {
     if (error || !data?.[0]) {
       console.error("Joining circle failed", error);
       setMessageTone("error");
-      setMessage("לא הצלחנו להצטרף למעגל. נסו שוב.");
+      setMessage(
+        error
+          ? `לא הצלחנו להצטרף למעגל. ${formatSupabaseError(error)}`
+          : "לא הצלחנו להצטרף למעגל. לא התקבלה תשובה מהשרת.",
+      );
       setJoinBusy(false);
       return;
     }
