@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.1.8";
+const APP_VERSION = "v1.0.1.9";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
@@ -352,6 +352,7 @@ export default function Home() {
   const [shareCommunity, setShareCommunity] = useState<Community | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(null);
+  const [autoJoinAfterAuth, setAutoJoinAfterAuth] = useState(false);
   const [invitedCommunity, setInvitedCommunity] = useState<SharedCommunity | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [joinBusy, setJoinBusy] = useState(false);
@@ -359,6 +360,7 @@ export default function Home() {
   const [inviteDismissed, setInviteDismissed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"error" | "success">("error");
+  const autoJoinAttemptedRef = useRef(false);
 
   const clearSelectedImage = useCallback((image: SelectedImage | null) => {
     if (image?.previewUrl) URL.revokeObjectURL(image.previewUrl);
@@ -599,9 +601,11 @@ export default function Home() {
     const params = new URLSearchParams(window.location.search);
     const joinToken = params.get("join");
     const authError = params.get("auth_error");
+    const shouldAutoJoin = params.get("autojoin") === "1";
 
     if (joinToken) {
       setPendingShareToken(joinToken);
+      setAutoJoinAfterAuth(shouldAutoJoin);
       void loadSharedInvite(joinToken);
     }
 
@@ -675,8 +679,39 @@ export default function Home() {
       setInviteDismissed(true);
       window.history.replaceState({}, "", window.location.pathname);
       setPendingShareToken(null);
+      setAutoJoinAfterAuth(false);
+      autoJoinAttemptedRef.current = false;
     });
   }, [
+    communities,
+    communitiesReady,
+    invitedCommunity,
+    pendingShareToken,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (
+      !autoJoinAfterAuth ||
+      !user ||
+      !communitiesReady ||
+      !pendingShareToken ||
+      !invitedCommunity ||
+      autoJoinAttemptedRef.current
+    ) {
+      return;
+    }
+
+    const existingMembership = communities.some(
+      (community) => community.id === invitedCommunity.id,
+    );
+
+    if (existingMembership) return;
+
+    autoJoinAttemptedRef.current = true;
+    void joinInvitedCircle();
+  }, [
+    autoJoinAfterAuth,
     communities,
     communitiesReady,
     invitedCommunity,
@@ -689,7 +724,7 @@ export default function Home() {
     setMessage(null);
 
     const nextPath = pendingShareToken
-      ? `/?join=${encodeURIComponent(pendingShareToken)}`
+      ? `/?join=${encodeURIComponent(pendingShareToken)}&autojoin=1`
       : "/";
     const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
     const { error } = await supabase.auth.signInWithOAuth({
@@ -739,6 +774,8 @@ export default function Home() {
   function clearJoinFromAddress() {
     window.history.replaceState({}, "", window.location.pathname);
     setPendingShareToken(null);
+    setAutoJoinAfterAuth(false);
+    autoJoinAttemptedRef.current = false;
   }
 
   function closeInvite() {
@@ -798,6 +835,7 @@ export default function Home() {
     if (profileError) {
       setMessageTone("error");
       setMessage(`לא הצלחנו להכין את הפרופיל להצטרפות. ${profileError}`);
+      setAutoJoinAfterAuth(false);
       setJoinBusy(false);
       return;
     }
@@ -814,6 +852,7 @@ export default function Home() {
           ? `לא הצלחנו להצטרף למעגל. ${formatSupabaseError(error)}`
           : "לא הצלחנו להצטרף למעגל. לא התקבלה תשובה מהשרת.",
       );
+      setAutoJoinAfterAuth(false);
       setJoinBusy(false);
       return;
     }
@@ -1927,6 +1966,11 @@ export default function Home() {
                     <button type="button" className="primary-button" onClick={closeInvite}>
                       סיום
                     </button>
+                  </div>
+                ) : autoJoinAfterAuth ? (
+                  <div className="invite-result" aria-live="polite">
+                    <span className="spinner spinner-small" />
+                    <strong>מצרפים אותך למעגל...</strong>
                   </div>
                 ) : (
                   <>
