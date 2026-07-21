@@ -1,11 +1,8 @@
-/* eslint-disable @next/next/no-img-element */
-
 import { cache } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { RichText } from "@/app/components/RichText";
 import { createClient } from "@/lib/supabase/server";
+import { CircleRedirect } from "./CircleRedirect";
 
 type SharedCommunity = {
   id: string;
@@ -103,54 +100,5 @@ export default async function SharedCirclePage({
     }
   }
 
-  return (
-    <main className="public-circle-page">
-      <section className="public-circle-card">
-        <header className="public-circle-brand">
-          <span className="public-circle-brand-mark" aria-hidden="true">
-            ◎
-          </span>
-          <div>
-            <strong>מעגלים</strong>
-            <span>Circles</span>
-          </div>
-        </header>
-
-        {community.logo_url && (
-          <a
-            className="public-circle-image-link"
-            href={community.logo_url}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`הגדלת תמונת המעגל ${community.name}`}
-          >
-            <img
-              className="public-circle-image"
-              src={community.logo_url}
-              alt={`תמונת המעגל ${community.name}`}
-            />
-          </a>
-        )}
-
-        <p className="section-kicker">הזמנה למעגל</p>
-        <h1>{community.name}</h1>
-
-        {community.description ? (
-          <RichText text={community.description} className="public-circle-description" />
-        ) : (
-          <p className="public-circle-description">הצטרפו למעגל במערכת מעגלים.</p>
-        )}
-
-        <p className="public-circle-approval">
-          {community.requires_member_approval
-            ? "בקשת ההצטרפות תועבר לאישור מנהלי המעגל."
-            : "אפשר להצטרף למעגל מיד לאחר הכניסה."}
-        </p>
-
-        <Link className="primary-button public-circle-join" href={`/?join=${community.share_token}`}>
-          לצפייה ולהצטרפות
-        </Link>
-      </section>
-    </main>
-  );
+  return <CircleRedirect token={community.share_token} />;
 }
