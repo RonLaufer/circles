@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.1.9";
+const APP_VERSION = "v1.0.2.0";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
@@ -731,10 +731,6 @@ export default function Home() {
       provider: "google",
       options: {
         redirectTo,
-        queryParams: {
-          access_type: "offline",
-          prompt: "select_account",
-        },
       },
     });
 
