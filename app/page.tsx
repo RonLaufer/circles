@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.1.5";
+const APP_VERSION = "v1.0.1.6";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
