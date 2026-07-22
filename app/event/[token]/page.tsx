@@ -49,6 +49,12 @@ function formatSharedEventDate(startsAt: string, endsAt: string | null) {
   return `${dateText} משעה ${startTime} עד ${timeFormatter.format(end)}`;
 }
 
+function formatSharedEventShortDate(startsAt: string) {
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return "";
+  return `${start.getDate()}/${start.getMonth() + 1}/${start.getFullYear()}`;
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -79,8 +85,10 @@ export async function generateMetadata({
       ]
     : undefined;
 
+  const browserTitle = `${event.title} ב ${formatSharedEventShortDate(event.starts_at)}`;
+
   return {
-    title: `${event.title} | מעגלים`,
+    title: browserTitle,
     description,
     alternates: { canonical: url },
     applicationName: event.community_name,

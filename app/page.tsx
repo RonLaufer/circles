@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.3.2";
+const APP_VERSION = "v1.0.4.1";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -147,16 +147,22 @@ type EventBringContribution = {
   user_id: string;
   item_name: string;
   quantity: number;
+  note: string;
   created_at: string;
   full_name: string;
   avatar_url: string | null;
   google_avatar_url: string | null;
 };
 
+type BringDisplayRow =
+  | { kind: "need"; sortName: string; need: EventBringNeed }
+  | { kind: "free"; sortName: string; contribution: EventBringContribution };
+
 type PendingMemberAction =
   | { type: "remove"; member: CommunityMember }
   | { type: "role"; member: CommunityMember; nextRole: "admin" | "member" }
-  | { type: "leave"; community: Community };
+  | { type: "leave"; community: Community }
+  | { type: "attendance"; attendance: EventAttendance };
 
 function GoogleIcon() {
   return (
@@ -181,6 +187,21 @@ function GoogleIcon() {
   );
 }
 
+function NavigationIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="navigation-icon">
+      <path
+        d="M20.4 3.6 3.9 10.4c-.9.4-.8 1.7.2 1.9l6.2 1.4 1.4 6.2c.2 1 1.5 1.1 1.9.2l6.8-16.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function CirclesMark() {
   return (
     <img
@@ -188,6 +209,15 @@ function CirclesMark() {
       alt="לוגו מעגלים"
       className="brand-logo-image"
     />
+  );
+}
+
+function ProfileMenuIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="profile-menu-icon">
+      <circle cx="12" cy="8" r="4" fill="currentColor" />
+      <path d="M4.5 21a7.5 7.5 0 0 1 15 0Z" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -239,6 +269,10 @@ function getWhatsAppUrl(phone: string) {
     : digits;
 
   return `https://wa.me/${internationalNumber}`;
+}
+
+function getNavigationUrl(location: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
 }
 
 function PhoneLink({ phone }: { phone: string }) {
@@ -445,6 +479,12 @@ function formatShortDateTime(value: string) {
   return `${datePart} בשעה ${timePart}`;
 }
 
+function formatShortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+}
+
 function formatEventDate(startsAt: string, endsAt?: string | null) {
   const start = new Date(startsAt);
   if (Number.isNaN(start.getTime())) return "";
@@ -461,6 +501,16 @@ function formatEventDate(startsAt: string, endsAt?: string | null) {
   const end = new Date(endsAt);
   if (Number.isNaN(end.getTime())) return `${datePart} משעה ${startTime}`;
   return `${datePart} משעה ${startTime} עד ${timeFormatter.format(end)}`;
+}
+
+function getEventDisplayTitle(event: Pick<CommunityEvent, "title" | "starts_at" | "ends_at">) {
+  const dateAndTime = formatEventDate(event.starts_at, event.ends_at);
+  return dateAndTime ? `${event.title} · ${dateAndTime}` : event.title;
+}
+
+function getEventBrowserTitle(event: Pick<CommunityEvent, "title" | "starts_at">) {
+  const date = formatShortDate(event.starts_at);
+  return date ? `${event.title} ב ${date}` : event.title;
 }
 
 function getEventShareUrl(shareToken: string) {
@@ -498,6 +548,7 @@ export default function Home() {
   const [about, setAbout] = useState("");
   const [city, setCity] = useState("");
   const [phone, setPhone] = useState("");
+  const [profileScreenOpen, setProfileScreenOpen] = useState(false);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
   const [communityFormOpen, setCommunityFormOpen] = useState(false);
@@ -536,7 +587,10 @@ export default function Home() {
   const [bringItemName, setBringItemName] = useState("");
   const [bringItemQuantity, setBringItemQuantity] = useState("1");
   const [bringQuantityByNeed, setBringQuantityByNeed] = useState<Record<string, string>>({});
+  const [bringNoteByContribution, setBringNoteByContribution] = useState<Record<string, string>>({});
+  const [freeBringQuantityByContribution, setFreeBringQuantityByContribution] = useState<Record<string, string>>({});
   const [bringBusyKey, setBringBusyKey] = useState<string | null>(null);
+  const [pendingBringDeletion, setPendingBringDeletion] = useState<EventBringContribution | null>(null);
   const [bringMessage, setBringMessage] = useState<string | null>(null);
   const [bringMessageTone, setBringMessageTone] = useState<"error" | "success">("error");
   const [eventFormOpen, setEventFormOpen] = useState(false);
@@ -576,6 +630,15 @@ export default function Home() {
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"error" | "success">("error");
   const autoJoinAttemptedRef = useRef(false);
+  const attendanceAutoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bringAutoSaveTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const freeBringAddBusyRef = useRef(false);
+  const initialNavigationTargetRef = useRef<{
+    eventToken?: string;
+    circleToken?: string;
+    profile?: boolean;
+  } | null>(null);
+  const directNavigationPreparedRef = useRef(false);
 
   const clearSelectedImage = useCallback((image: SelectedImage | null) => {
     if (image?.previewUrl) URL.revokeObjectURL(image.previewUrl);
@@ -825,7 +888,7 @@ export default function Home() {
 
       const { data: contributionRows, error: contributionsError } = await supabase
         .from("event_bring_contributions")
-        .select("id,event_id,need_id,user_id,item_name,quantity,created_at")
+        .select("id,event_id,need_id,user_id,item_name,quantity,note,created_at")
         .eq("event_id", eventId)
         .order("created_at", { ascending: true });
 
@@ -863,6 +926,7 @@ export default function Home() {
         const contributorProfile = profilesById.get(contribution.user_id);
         return {
           ...contribution,
+          note: contribution.note ?? "",
           full_name: contributorProfile?.full_name || "משתמש",
           avatar_url: contributorProfile?.avatar_url ?? null,
           google_avatar_url: contributorProfile?.google_avatar_url ?? null,
@@ -877,8 +941,24 @@ export default function Home() {
             const ownContribution = mappedContributions.find(
               (contribution) => contribution.need_id === need.id && contribution.user_id === user?.id,
             );
-            return [need.id, String(ownContribution?.quantity ?? 1)];
+            return [need.id, String(ownContribution?.quantity ?? 0)];
           }),
+        ),
+      );
+      setFreeBringQuantityByContribution(
+        Object.fromEntries(
+          mappedContributions
+            .filter(
+              (contribution) => contribution.need_id === null && contribution.user_id === user?.id,
+            )
+            .map((contribution) => [contribution.id, String(contribution.quantity)]),
+        ),
+      );
+      setBringNoteByContribution(
+        Object.fromEntries(
+          mappedContributions
+            .filter((contribution) => contribution.user_id === user?.id)
+            .map((contribution) => [contribution.id, contribution.note ?? ""]),
         ),
       );
       setBringLoading(false);
@@ -937,6 +1017,36 @@ export default function Home() {
     },
     [supabase],
   );
+
+  function setBrowserView(
+    view: { circleToken?: string; eventToken?: string; profile?: boolean },
+    mode: "push" | "replace" = "push",
+  ) {
+    const params = new URLSearchParams();
+    if (view.eventToken) params.set("event", view.eventToken);
+    else if (view.circleToken) params.set("circle", view.circleToken);
+    else if (view.profile) params.set("view", "profile");
+
+    const nextUrl = params.size ? `/?${params.toString()}` : "/";
+    const viewName = view.eventToken
+      ? "event"
+      : view.circleToken
+        ? "circle"
+        : view.profile
+          ? "profile"
+          : "home";
+    const state = { circlesApp: true, view: viewName };
+    if (mode === "replace") window.history.replaceState(state, "", nextUrl);
+    else window.history.pushState(state, "", nextUrl);
+  }
+
+  function normalizeInviteAddress() {
+    if (pendingEventShareToken) {
+      setBrowserView({ eventToken: pendingEventShareToken }, "replace");
+    } else if (pendingShareToken) {
+      setBrowserView({ circleToken: pendingShareToken }, "replace");
+    }
+  }
 
   const loadProfile = useCallback(
     async (currentUser: User) => {
@@ -1019,6 +1129,8 @@ export default function Home() {
 
   useEffect(() => {
     const selected = communities.find((community) => community.id === selectedCommunityId) ?? null;
+    const selectedEventForTitle =
+      communityEvents.find((event) => event.id === selectedEventId) ?? null;
     const manifestHref = selected
       ? `/api/manifest?circle=${encodeURIComponent(selected.share_token)}`
       : "/manifest.webmanifest";
@@ -1040,24 +1152,57 @@ export default function Home() {
       document.head.appendChild(appTitleMeta);
     }
     appTitleMeta.content = selected?.name ?? "מעגלים";
-    document.title = selected?.name ?? "מעגלים";
-  }, [communities, selectedCommunityId]);
+    document.title = selectedEventForTitle
+      ? getEventBrowserTitle(selectedEventForTitle)
+      : selected?.name ?? "מעגלים";
+  }, [communities, communityEvents, selectedCommunityId, selectedEventId]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const joinToken = params.get("join");
+    const circleToken = params.get("circle");
     const eventToken = params.get("event");
+    const requestedView = params.get("view");
     const authError = params.get("auth_error");
     const shouldAutoJoin = params.get("autojoin") === "1";
+
+    const existingHistoryState = window.history.state as { circlesApp?: boolean } | null;
+    if (!existingHistoryState?.circlesApp) {
+      initialNavigationTargetRef.current = eventToken
+        ? { eventToken }
+        : joinToken || circleToken
+          ? { circleToken: joinToken ?? circleToken ?? undefined }
+          : requestedView === "profile"
+            ? { profile: true }
+            : null;
+
+      if (requestedView === "profile") {
+        window.history.replaceState({ circlesApp: true, view: "home" }, "", "/");
+        window.history.pushState({ circlesApp: true, view: "profile" }, "", "/?view=profile");
+        directNavigationPreparedRef.current = true;
+      } else if (!eventToken && !joinToken && !circleToken) {
+        window.history.replaceState({ circlesApp: true, view: "home" }, "", "/");
+        directNavigationPreparedRef.current = true;
+      } else {
+        window.history.replaceState(
+          { circlesApp: true, view: eventToken ? "event-pending" : "circle-pending" },
+          "",
+          window.location.href,
+        );
+      }
+    }
+
+    if (requestedView === "profile") setProfileScreenOpen(true);
 
     if (eventToken) {
       setPendingEventShareToken(eventToken);
       setAutoJoinAfterAuth(shouldAutoJoin);
       void loadSharedEvent(eventToken);
-    } else if (joinToken) {
-      setPendingShareToken(joinToken);
+    } else if (joinToken || circleToken) {
+      const targetCircleToken = joinToken ?? circleToken!;
+      setPendingShareToken(targetCircleToken);
       setAutoJoinAfterAuth(shouldAutoJoin);
-      void loadSharedInvite(joinToken);
+      void loadSharedInvite(targetCircleToken);
     }
 
     if (authError) {
@@ -1105,6 +1250,75 @@ export default function Home() {
   }, [loadCommunities, loadProfile, loadSharedEvent, loadSharedInvite, supabase]);
 
   useEffect(() => {
+    const applyAddressState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const eventToken = params.get("event");
+      const circleToken = params.get("circle");
+      const joinToken = params.get("join");
+      const requestedView = params.get("view");
+
+      setCommunityFormOpen(false);
+      setEventFormOpen(false);
+      setProfileScreenOpen(requestedView === "profile");
+
+      if (requestedView === "profile") {
+        setSelectedEventId(null);
+        setSelectedCommunityId(null);
+        return;
+      }
+
+      if (eventToken) {
+        const localEvent = communityEvents.find((event) => event.share_token === eventToken);
+        if (localEvent) {
+          setSelectedCommunityId(localEvent.community_id);
+          setSelectedEventId(localEvent.id);
+          return;
+        }
+        setPendingEventShareToken(eventToken);
+        setPendingShareToken(null);
+        void loadSharedEvent(eventToken);
+        return;
+      }
+
+      const targetCircleToken = circleToken ?? joinToken;
+      if (targetCircleToken) {
+        const localCommunity = communities.find(
+          (community) => community.share_token === targetCircleToken,
+        );
+        if (localCommunity) {
+          setSelectedEventId(null);
+          setSelectedCommunityId(localCommunity.id);
+          return;
+        }
+        setPendingShareToken(targetCircleToken);
+        setPendingEventShareToken(null);
+        void loadSharedInvite(targetCircleToken);
+        return;
+      }
+
+      setSelectedEventId(null);
+      setSelectedCommunityId(null);
+      setPendingShareToken(null);
+      setPendingEventShareToken(null);
+    };
+
+    window.addEventListener("popstate", applyAddressState);
+    return () => window.removeEventListener("popstate", applyAddressState);
+  }, [communities, communityEvents, loadSharedEvent, loadSharedInvite]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(bringAutoSaveTimeoutsRef.current).forEach(clearTimeout);
+      bringAutoSaveTimeoutsRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    Object.values(bringAutoSaveTimeoutsRef.current).forEach(clearTimeout);
+    bringAutoSaveTimeoutsRef.current = {};
+    setPendingBringDeletion(null);
+    setBringItemName("");
+    setBringItemQuantity("1");
     setSelectedEventId(null);
     setEventAttendance([]);
     setAttendanceMessage(null);
@@ -1136,6 +1350,8 @@ export default function Home() {
       setAttendanceMessage(null);
       setEventBringNeeds([]);
       setEventBringContributions([]);
+      setBringQuantityByNeed({});
+      setFreeBringQuantityByContribution({});
       setBringItemName("");
       setBringItemQuantity("1");
       setBringMessage(null);
@@ -1150,6 +1366,88 @@ export default function Home() {
       ]);
     }
   }, [communityEvents, loadEventAttendance, loadEventBringData, selectedEventId]);
+
+  useEffect(() => {
+    if (!selectedEventId || !attendanceStatus || attendanceLoading || savingAttendance) return;
+
+    const currentAttendance = eventAttendance.find(
+      (attendance) => attendance.user_id === user?.id,
+    );
+    const parsedPartySize = Number.parseInt(attendancePartySize, 10);
+    const normalizedPartySize = attendanceStatus === "not_going" ? 1 : parsedPartySize;
+    const isValidPartySize =
+      attendanceStatus === "not_going" ||
+      (Number.isInteger(normalizedPartySize) && normalizedPartySize >= 1 && normalizedPartySize <= 20);
+
+    if (!isValidPartySize) return;
+
+    const isDirty =
+      attendanceStatus !== currentAttendance?.status ||
+      normalizedPartySize !== (currentAttendance?.party_size ?? 1) ||
+      (attendanceStatus === "not_going" ? "" : attendanceGuestNames.trim()) !==
+        (currentAttendance?.guest_names ?? "") ||
+      attendanceNote.trim() !== (currentAttendance?.note ?? "");
+
+    if (!isDirty) return;
+
+    if (attendanceAutoSaveTimeoutRef.current) {
+      clearTimeout(attendanceAutoSaveTimeoutRef.current);
+    }
+
+    const statusChanged = attendanceStatus !== currentAttendance?.status;
+    attendanceAutoSaveTimeoutRef.current = setTimeout(
+      () => void saveAttendance(attendanceStatus),
+      statusChanged ? 0 : 650,
+    );
+
+    return () => {
+      if (attendanceAutoSaveTimeoutRef.current) {
+        clearTimeout(attendanceAutoSaveTimeoutRef.current);
+        attendanceAutoSaveTimeoutRef.current = null;
+      }
+    };
+  }, [
+    attendanceGuestNames,
+    attendanceLoading,
+    attendanceNote,
+    attendancePartySize,
+    attendanceStatus,
+    eventAttendance,
+    savingAttendance,
+    selectedEventId,
+    user?.id,
+  ]);
+
+  useEffect(() => {
+    if (directNavigationPreparedRef.current || !initialNavigationTargetRef.current) return;
+
+    const initialTarget = initialNavigationTargetRef.current;
+    if (initialTarget.eventToken && invitedEvent) {
+      window.history.replaceState({ circlesApp: true, view: "home" }, "", "/");
+      window.history.pushState(
+        { circlesApp: true, view: "circle" },
+        "",
+        `/?circle=${encodeURIComponent(invitedEvent.community_share_token)}`,
+      );
+      window.history.pushState(
+        { circlesApp: true, view: "event" },
+        "",
+        `/?event=${encodeURIComponent(initialTarget.eventToken)}`,
+      );
+      directNavigationPreparedRef.current = true;
+      return;
+    }
+
+    if (initialTarget.circleToken && invitedCommunity) {
+      window.history.replaceState({ circlesApp: true, view: "home" }, "", "/");
+      window.history.pushState(
+        { circlesApp: true, view: "circle" },
+        "",
+        `/?circle=${encodeURIComponent(initialTarget.circleToken)}`,
+      );
+      directNavigationPreparedRef.current = true;
+    }
+  }, [invitedCommunity, invitedEvent]);
 
   useEffect(() => {
     if (
@@ -1171,7 +1469,7 @@ export default function Home() {
       setSelectedCommunityId(existingMembership.id);
       if (invitedEvent) setPendingEventOpenId(invitedEvent.id);
       setInviteDismissed(true);
-      window.history.replaceState({}, "", window.location.pathname);
+      normalizeInviteAddress();
       setPendingShareToken(null);
       setPendingEventShareToken(null);
       setAutoJoinAfterAuth(false);
@@ -1253,6 +1551,20 @@ export default function Home() {
   async function signOut() {
     setAuthBusy(true);
     setMessage(null);
+
+    const params = new URLSearchParams(window.location.search);
+    const currentEventToken = params.get("event");
+    const currentCircleToken = params.get("circle");
+    if (currentEventToken) {
+      setPendingEventShareToken(currentEventToken);
+      setPendingShareToken(null);
+      void loadSharedEvent(currentEventToken);
+    } else if (currentCircleToken) {
+      setPendingShareToken(currentCircleToken);
+      setPendingEventShareToken(null);
+      void loadSharedInvite(currentCircleToken);
+    }
+
     const { error } = await supabase.auth.signOut({ scope: "local" });
 
     if (error) {
@@ -1280,8 +1592,9 @@ export default function Home() {
     setLightbox({ url, alt });
   }
 
-  function clearJoinFromAddress() {
-    window.history.replaceState({}, "", window.location.pathname);
+  function clearJoinFromAddress(preserveTarget = false) {
+    if (preserveTarget) normalizeInviteAddress();
+    else setBrowserView({}, "replace");
     setPendingShareToken(null);
     setPendingEventShareToken(null);
     setAutoJoinAfterAuth(false);
@@ -1336,7 +1649,7 @@ export default function Home() {
       setSelectedCommunityId(existingMembership.id);
       if (invitedEvent) setPendingEventOpenId(invitedEvent.id);
       setInviteDismissed(true);
-      clearJoinFromAddress();
+      clearJoinFromAddress(true);
       return;
     }
 
@@ -1384,7 +1697,7 @@ export default function Home() {
     setSelectedCommunityId(result.community_id);
     if (invitedEvent) setPendingEventOpenId(invitedEvent.id);
     setInviteDismissed(true);
-    clearJoinFromAddress();
+    clearJoinFromAddress(true);
     setMessageTone("success");
     setMessage(
       result.result === "member"
@@ -1524,6 +1837,7 @@ export default function Home() {
     }
 
     setSelectedCommunityId(null);
+    setBrowserView({});
     setCommunityMembers([]);
     setJoinRequests([]);
     await loadCommunities(user);
@@ -1545,6 +1859,8 @@ export default function Home() {
         pendingMemberAction.member,
         pendingMemberAction.nextRole,
       );
+    } else if (pendingMemberAction.type === "attendance") {
+      succeeded = await deleteEventAttendance(pendingMemberAction.attendance);
     } else {
       succeeded = await leaveCommunity(pendingMemberAction.community);
     }
@@ -1955,6 +2271,7 @@ export default function Home() {
         : `המעגל „${createdCommunity.name}” נוצר בהצלחה.`,
     );
     setSelectedCommunityId(createdCommunity.id);
+    setBrowserView({ circleToken: createdCommunity.share_token });
     setSavingCommunity(false);
   }
 
@@ -1981,6 +2298,7 @@ export default function Home() {
   }
 
   function openEventDetails(event: CommunityEvent) {
+    setBrowserView({ eventToken: event.share_token });
     setSelectedEventId(event.id);
     setAttendanceMessage(null);
     setBringMessage(null);
@@ -1989,6 +2307,17 @@ export default function Home() {
 
   function closeEventDetails() {
     if (savingAttendance || bringBusyKey) return;
+    const currentState = window.history.state as { circlesApp?: boolean; view?: string } | null;
+    if (currentState?.circlesApp && currentState.view === "event") {
+      window.history.back();
+      return;
+    }
+
+    const currentCommunity = communities.find(
+      (community) => community.id === selectedCommunityId,
+    );
+    if (currentCommunity) setBrowserView({ circleToken: currentCommunity.share_token }, "replace");
+    else setBrowserView({}, "replace");
     setSelectedEventId(null);
     setAttendanceMessage(null);
     setBringMessage(null);
@@ -2139,48 +2468,179 @@ export default function Home() {
     return null;
   }
 
-  async function saveNeedContribution(need: EventBringNeed) {
+  async function saveNeedContribution(need: EventBringNeed, quantityOverride?: number) {
     if (!user || !selectedEventId) return;
-    const quantity = Number.parseInt(bringQuantityByNeed[need.id] ?? "1", 10);
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) {
+    const quantity =
+      quantityOverride ?? Number.parseInt(bringQuantityByNeed[need.id] ?? "0", 10);
+    const existing = eventBringContributions.find(
+      (contribution) => contribution.need_id === need.id && contribution.user_id === user.id,
+    );
+
+    if (!Number.isInteger(quantity) || quantity < 0 || quantity > 1000) {
       setBringMessageTone("error");
-      setBringMessage("הכמות צריכה להיות בין 1 ל־1,000.");
+      setBringMessage("הכמות צריכה להיות בין 0 ל־1,000.");
       return;
     }
 
     setBringBusyKey(`need-${need.id}`);
     setBringMessage(null);
-    const existing = eventBringContributions.find(
-      (contribution) => contribution.need_id === need.id && contribution.user_id === user.id,
-    );
-    const operation = existing
-      ? supabase
-          .from("event_bring_contributions")
-          .update({ quantity, item_name: need.item_name })
-          .eq("id", existing.id)
-      : supabase.from("event_bring_contributions").insert({
-          event_id: selectedEventId,
-          need_id: need.id,
-          user_id: user.id,
-          item_name: need.item_name,
-          quantity,
-        });
-    const { error } = await operation;
 
-    if (error) {
+    if (quantity === 0) {
+      if (!existing) {
+        setBringBusyKey(null);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("event_bring_contributions")
+        .delete()
+        .eq("id", existing.id);
+
+      if (error) {
+        setBringMessageTone("error");
+        setBringMessage(`ביטול הפריט לא הצליח. ${formatSupabaseError(error)}`);
+        setBringQuantityByNeed((current) => ({
+          ...current,
+          [need.id]: String(existing.quantity),
+        }));
+      } else {
+        setEventBringContributions((current) =>
+          current.filter((contribution) => contribution.id !== existing.id),
+        );
+        setBringNoteByContribution((current) => {
+          const next = { ...current };
+          delete next[existing.id];
+          return next;
+        });
+      }
+      setBringBusyKey(null);
+      return;
+    }
+
+    if (existing) {
+      const { error } = await supabase
+        .from("event_bring_contributions")
+        .update({ quantity, item_name: need.item_name })
+        .eq("id", existing.id);
+
+      if (error) {
+        setBringMessageTone("error");
+        setBringMessage(`שמירת הפריט לא הצליחה. ${formatSupabaseError(error)}`);
+        setBringQuantityByNeed((current) => ({
+          ...current,
+          [need.id]: String(existing.quantity),
+        }));
+      } else {
+        setEventBringContributions((current) =>
+          current.map((contribution) =>
+            contribution.id === existing.id
+              ? { ...contribution, quantity, item_name: need.item_name }
+              : contribution,
+          ),
+        );
+      }
+      setBringBusyKey(null);
+      return;
+    }
+
+    const { data: inserted, error } = await supabase
+      .from("event_bring_contributions")
+      .insert({
+        event_id: selectedEventId,
+        need_id: need.id,
+        user_id: user.id,
+        item_name: need.item_name,
+        quantity,
+      })
+      .select("id,event_id,need_id,user_id,item_name,quantity,note,created_at")
+      .single();
+
+    if (error || !inserted) {
       setBringMessageTone("error");
       setBringMessage(`שמירת הפריט לא הצליחה. ${formatSupabaseError(error)}`);
+      setBringQuantityByNeed((current) => ({ ...current, [need.id]: "0" }));
     } else {
-      await loadEventBringData(selectedEventId);
-      setBringMessageTone("success");
-      setBringMessage("הפריט נשמר ברשימה.");
+      const googleProfile = getGoogleProfile(user);
+      const insertedContribution: EventBringContribution = {
+        ...inserted,
+        full_name: profile?.full_name || googleProfile.fullName,
+        avatar_url: profile?.avatar_url ?? null,
+        google_avatar_url: profile?.google_avatar_url ?? googleProfile.avatarUrl,
+      };
+      setEventBringContributions((current) => [...current, insertedContribution]);
+      setBringNoteByContribution((current) => ({ ...current, [inserted.id]: "" }));
     }
     setBringBusyKey(null);
   }
 
+  async function saveContributionNote(contribution: EventBringContribution, note: string) {
+    if (!selectedEventId || contribution.user_id !== user?.id) return;
+    const normalizedNote = note.slice(0, 300);
+    setBringBusyKey(`note-${contribution.id}`);
+    setBringMessage(null);
+
+    const { error } = await supabase
+      .from("event_bring_contributions")
+      .update({ note: normalizedNote })
+      .eq("id", contribution.id);
+
+    if (error) {
+      setBringMessageTone("error");
+      setBringMessage(`שמירת ההערה לא הצליחה. ${formatSupabaseError(error)}`);
+      setBringNoteByContribution((current) => ({
+        ...current,
+        [contribution.id]: contribution.note,
+      }));
+    } else {
+      setEventBringContributions((current) =>
+        current.map((item) =>
+          item.id === contribution.id ? { ...item, note: normalizedNote } : item,
+        ),
+      );
+    }
+    setBringBusyKey(null);
+  }
+
+  function scheduleContributionNoteSave(
+    contribution: EventBringContribution,
+    value: string,
+  ) {
+    const normalizedValue = value.slice(0, 300);
+    setBringNoteByContribution((current) => ({
+      ...current,
+      [contribution.id]: normalizedValue,
+    }));
+
+    const timeoutKey = `note-${contribution.id}`;
+    const currentTimeout = bringAutoSaveTimeoutsRef.current[timeoutKey];
+    if (currentTimeout) clearTimeout(currentTimeout);
+
+    bringAutoSaveTimeoutsRef.current[timeoutKey] = setTimeout(() => {
+      delete bringAutoSaveTimeoutsRef.current[timeoutKey];
+      void saveContributionNote(contribution, normalizedValue);
+    }, 550);
+  }
+
+  function scheduleNeedContributionSave(need: EventBringNeed, value: string) {
+    setBringQuantityByNeed((current) => ({ ...current, [need.id]: value }));
+    const timeoutKey = `need-${need.id}`;
+    const currentTimeout = bringAutoSaveTimeoutsRef.current[timeoutKey];
+    if (currentTimeout) clearTimeout(currentTimeout);
+
+    if (value.trim() === "") return;
+    const quantity = Number.parseInt(value, 10);
+    if (!Number.isInteger(quantity) || quantity < 0 || quantity > 1000) return;
+
+    bringAutoSaveTimeoutsRef.current[timeoutKey] = setTimeout(() => {
+      delete bringAutoSaveTimeoutsRef.current[timeoutKey];
+      void saveNeedContribution(need, quantity);
+    }, 550);
+  }
+
   async function removeBringContribution(contribution: EventBringContribution) {
-    if (!selectedEventId) return;
+    if (!selectedEventId) return false;
     setBringBusyKey(`contribution-${contribution.id}`);
+    setBringMessage(null);
     const { error } = await supabase
       .from("event_bring_contributions")
       .delete()
@@ -2188,57 +2648,167 @@ export default function Home() {
     if (error) {
       setBringMessageTone("error");
       setBringMessage(`הסרת הפריט לא הצליחה. ${formatSupabaseError(error)}`);
+      setBringBusyKey(null);
+      return false;
+    }
+
+    setEventBringContributions((current) =>
+      current.filter((item) => item.id !== contribution.id),
+    );
+    setFreeBringQuantityByContribution((current) => {
+      const next = { ...current };
+      delete next[contribution.id];
+      return next;
+    });
+    setBringNoteByContribution((current) => {
+      const next = { ...current };
+      delete next[contribution.id];
+      return next;
+    });
+    setBringMessage(null);
+    setBringBusyKey(null);
+    return true;
+  }
+
+  async function saveFreeContributionQuantity(
+    contribution: EventBringContribution,
+    quantity: number,
+  ) {
+    if (!selectedEventId || quantity < 1 || quantity > 1000) return;
+
+    setBringBusyKey(`contribution-${contribution.id}`);
+    setBringMessage(null);
+    const { error } = await supabase
+      .from("event_bring_contributions")
+      .update({ quantity })
+      .eq("id", contribution.id);
+
+    if (error) {
+      setBringMessageTone("error");
+      setBringMessage(`עדכון הכמות לא הצליח. ${formatSupabaseError(error)}`);
+      setFreeBringQuantityByContribution((current) => ({
+        ...current,
+        [contribution.id]: String(contribution.quantity),
+      }));
     } else {
-      await loadEventBringData(selectedEventId);
-      setBringMessageTone("success");
-      setBringMessage("הפריט הוסר מהרשימה.");
+      setEventBringContributions((current) =>
+        current.map((item) =>
+          item.id === contribution.id ? { ...item, quantity } : item,
+        ),
+      );
+      setBringMessage(null);
     }
     setBringBusyKey(null);
   }
 
-  async function addFreeBringContribution() {
-    if (!user || !selectedEventId) return;
-    const itemName = bringItemName.trim();
-    const quantity = Number.parseInt(bringItemQuantity, 10);
-    if (!itemName || !Number.isInteger(quantity) || quantity < 1 || quantity > 1000) {
-      setBringMessageTone("error");
-      setBringMessage("יש להזין מה מביאים וכמות בין 1 ל־1,000.");
+  function scheduleFreeContributionSave(
+    contribution: EventBringContribution,
+    value: string,
+  ) {
+    setFreeBringQuantityByContribution((current) => ({
+      ...current,
+      [contribution.id]: value,
+    }));
+
+    const timeoutKey = `contribution-${contribution.id}`;
+    const currentTimeout = bringAutoSaveTimeoutsRef.current[timeoutKey];
+    if (currentTimeout) clearTimeout(currentTimeout);
+
+    if (value.trim() === "") return;
+    const quantity = Number.parseInt(value, 10);
+    if (!Number.isInteger(quantity) || quantity < 0 || quantity > 1000) return;
+
+    if (quantity === 0) {
+      setPendingBringDeletion(contribution);
       return;
     }
 
+    bringAutoSaveTimeoutsRef.current[timeoutKey] = setTimeout(() => {
+      delete bringAutoSaveTimeoutsRef.current[timeoutKey];
+      void saveFreeContributionQuantity(contribution, quantity);
+    }, 550);
+  }
+
+  async function addFreeBringContribution(itemNameOverride?: string, quantityOverride?: number) {
+    if (!user || !selectedEventId || freeBringAddBusyRef.current) return;
+    const itemName = (itemNameOverride ?? bringItemName).trim();
+    const quantity = quantityOverride ?? Number.parseInt(bringItemQuantity, 10);
+    if (!itemName || !Number.isInteger(quantity) || quantity < 1 || quantity > 1000) return;
+
+    freeBringAddBusyRef.current = true;
     setBringBusyKey("free-add");
-    const { error } = await supabase.from("event_bring_contributions").insert({
-      event_id: selectedEventId,
-      need_id: null,
-      user_id: user.id,
-      item_name: itemName,
-      quantity,
-    });
-    if (error) {
+    setBringMessage(null);
+    const { data: inserted, error } = await supabase
+      .from("event_bring_contributions")
+      .insert({
+        event_id: selectedEventId,
+        need_id: null,
+        user_id: user.id,
+        item_name: itemName,
+        quantity,
+      })
+      .select("id,event_id,need_id,user_id,item_name,quantity,note,created_at")
+      .single();
+    if (error || !inserted) {
       setBringMessageTone("error");
       setBringMessage(`הוספת הפריט לא הצליחה. ${formatSupabaseError(error)}`);
     } else {
+      const googleProfile = getGoogleProfile(user);
+      const insertedContribution: EventBringContribution = {
+        ...inserted,
+        full_name: profile?.full_name || googleProfile.fullName,
+        avatar_url: profile?.avatar_url ?? null,
+        google_avatar_url: profile?.google_avatar_url ?? googleProfile.avatarUrl,
+      };
+      setEventBringContributions((current) => [...current, insertedContribution]);
+      setFreeBringQuantityByContribution((current) => ({
+        ...current,
+        [inserted.id]: String(quantity),
+      }));
+      setBringNoteByContribution((current) => ({ ...current, [inserted.id]: "" }));
       setBringItemName("");
       setBringItemQuantity("1");
-      await loadEventBringData(selectedEventId);
-      setBringMessageTone("success");
-      setBringMessage("הפריט נוסף לרשימה.");
+      setBringMessage(null);
     }
     setBringBusyKey(null);
+    freeBringAddBusyRef.current = false;
   }
 
-  async function saveAttendance() {
-    if (!user || !selectedEventId || !attendanceStatus) {
-      setAttendanceMessageTone("error");
-      setAttendanceMessage("יש לבחור מגיע/ה, אולי או לא מגיע/ה.");
-      return;
+  function tryAddFreeBringItem() {
+    const itemName = bringItemName.trim();
+    const quantity = Number.parseInt(bringItemQuantity, 10);
+    if (itemName && Number.isInteger(quantity) && quantity >= 1 && quantity <= 1000) {
+      void addFreeBringContribution(itemName, quantity);
     }
+  }
+
+  async function confirmBringDeletion() {
+    if (!pendingBringDeletion) return;
+    const contribution = pendingBringDeletion;
+    const removed = await removeBringContribution(contribution);
+    if (removed) {
+      setPendingBringDeletion(null);
+    }
+  }
+
+  function cancelBringDeletion() {
+    if (!pendingBringDeletion) return;
+    setFreeBringQuantityByContribution((current) => ({
+      ...current,
+      [pendingBringDeletion.id]: String(pendingBringDeletion.quantity),
+    }));
+    setPendingBringDeletion(null);
+  }
+
+  async function saveAttendance(statusOverride?: AttendanceStatus) {
+    const statusToSave = statusOverride ?? attendanceStatus;
+    if (!user || !selectedEventId || !statusToSave || savingAttendance) return;
 
     const parsedPartySize = Number.parseInt(attendancePartySize, 10);
-    const normalizedPartySize = attendanceStatus === "not_going" ? 1 : parsedPartySize;
+    const normalizedPartySize = statusToSave === "not_going" ? 1 : parsedPartySize;
 
     if (
-      attendanceStatus !== "not_going" &&
+      statusToSave !== "not_going" &&
       (!Number.isInteger(normalizedPartySize) || normalizedPartySize < 1 || normalizedPartySize > 20)
     ) {
       setAttendanceMessageTone("error");
@@ -2251,14 +2821,21 @@ export default function Home() {
 
     const { error } = await supabase.rpc("save_event_attendance", {
       target_event_id: selectedEventId,
-      target_status: attendanceStatus,
+      target_status: statusToSave,
       target_party_size: normalizedPartySize,
-      target_guest_names: attendanceStatus === "not_going" ? "" : attendanceGuestNames.trim(),
+      target_guest_names: statusToSave === "not_going" ? "" : attendanceGuestNames.trim(),
       target_note: attendanceNote.trim(),
     });
 
     if (error) {
       console.error("Saving event attendance failed", error);
+      const previousAttendance = eventAttendance.find(
+        (attendance) => attendance.user_id === user.id,
+      );
+      setAttendanceStatus(previousAttendance?.status ?? null);
+      setAttendancePartySize(String(previousAttendance?.party_size ?? 1));
+      setAttendanceGuestNames(previousAttendance?.guest_names ?? "");
+      setAttendanceNote(previousAttendance?.note ?? "");
       setAttendanceMessageTone("error");
       setAttendanceMessage(
         error.message.includes("event_capacity_exceeded")
@@ -2271,8 +2848,36 @@ export default function Home() {
 
     await loadEventAttendance(selectedEventId);
     setSavingAttendance(false);
-    setAttendanceMessageTone("success");
-    setAttendanceMessage("ההשתתפות שלך נשמרה.");
+    setAttendanceMessage(null);
+  }
+
+  async function deleteEventAttendance(attendance: EventAttendance) {
+    if (!selectedEventId || !user) return false;
+
+    setMemberActionBusy(true);
+    setAttendanceMessage(null);
+
+    const { error } = await supabase.rpc("delete_event_attendance", {
+      target_event_id: selectedEventId,
+      target_user_id: attendance.user_id,
+    });
+
+    if (error) {
+      console.error("Deleting event attendance failed", error);
+      setAttendanceMessageTone("error");
+      setAttendanceMessage(`מחיקת ההשתתפות לא הצליחה. ${formatSupabaseError(error)}`);
+      setMemberActionBusy(false);
+      return false;
+    }
+
+    await Promise.all([
+      loadEventAttendance(selectedEventId),
+      loadEventBringData(selectedEventId),
+    ]);
+
+    setAttendanceMessage(null);
+    setMemberActionBusy(false);
+    return true;
   }
 
   async function saveEvent() {
@@ -2602,16 +3207,24 @@ export default function Home() {
     (total, attendance) => total + attendance.party_size,
     0,
   );
-  const attendanceFormIsDirty = Boolean(
-    attendanceStatus &&
-      (attendanceStatus !== ownEventAttendance?.status ||
-        (attendanceStatus !== "not_going" &&
-          Number.parseInt(attendancePartySize || "0", 10) !== (ownEventAttendance?.party_size ?? 1)) ||
-        attendanceGuestNames !== (ownEventAttendance?.guest_names ?? "") ||
-        attendanceNote !== (ownEventAttendance?.note ?? "")),
-  );
   const freeBringContributions = eventBringContributions.filter(
     (contribution) => contribution.need_id === null,
+  );
+  const bringDisplayRows: BringDisplayRow[] = [
+    ...(selectedEvent?.bring_mode === "planned"
+      ? eventBringNeeds.map((need) => ({
+          kind: "need" as const,
+          sortName: need.item_name,
+          need,
+        }))
+      : []),
+    ...freeBringContributions.map((contribution) => ({
+      kind: "free" as const,
+      sortName: contribution.item_name,
+      contribution,
+    })),
+  ].sort((first, second) =>
+    first.sortName.localeCompare(second.sortName, "he", { sensitivity: "base" }),
   );
   const copyableEvents = communityEvents.filter(
     (event) => event.id !== editingEventId && event.bring_mode === "planned",
@@ -2644,6 +3257,9 @@ export default function Home() {
   const canManageEvents = Boolean(
     selectedCommunity &&
       (selectedCommunity.role === "owner" || selectedCommunity.role === "admin"),
+  );
+  const canDeleteAnyEventAttendance = Boolean(
+    selectedEvent && (isSystemAdmin || canManageEvents),
   );
   const shareUrl = shareCommunity
     ? getCommunityShareUrl(shareCommunity.share_token)
@@ -2712,12 +3328,22 @@ export default function Home() {
             confirmLabel: "כן, לשנות",
             tone: "standard" as const,
           }
-        : {
-            title: "עזיבת המעגל",
-            message: `לעזוב את המעגל „${pendingMemberAction.community.name}”? החברות שלך במעגל תימחק ממסד הנתונים.`,
-            confirmLabel: "כן, לעזוב",
-            tone: "danger" as const,
-          }
+        : pendingMemberAction.type === "attendance"
+          ? {
+              title: "מחיקת השתתפות באירוע",
+              message:
+                pendingMemberAction.attendance.user_id === user.id
+                  ? "למחוק לגמרי את ההשתתפות שלך באירוע? גם הפריטים שהתחייבת להביא באירוע יימחקו."
+                  : `למחוק לגמרי את ההשתתפות של ${pendingMemberAction.attendance.full_name}? גם הפריטים שהמשתתף התחייב להביא יימחקו.`,
+              confirmLabel: "כן, למחוק",
+              tone: "danger" as const,
+            }
+          : {
+              title: "עזיבת המעגל",
+              message: `לעזוב את המעגל „${pendingMemberAction.community.name}”? החברות שלך במעגל תימחק ממסד הנתונים.`,
+              confirmLabel: "כן, לעזוב",
+              tone: "danger" as const,
+            }
     : null;
 
   return (
@@ -2727,7 +3353,14 @@ export default function Home() {
           <button
             type="button"
             className="brand-button"
-            onClick={() => setSelectedCommunityId(null)}
+            onClick={() => {
+              setProfileScreenOpen(false);
+              setCommunityFormOpen(false);
+              setEventFormOpen(false);
+              setSelectedEventId(null);
+              setSelectedCommunityId(null);
+              setBrowserView({});
+            }}
             aria-label="מעבר למסך הראשי"
           >
             <span className="brand-lockup brand-lockup-small">
@@ -2740,6 +3373,23 @@ export default function Home() {
           </button>
 
           <div className="header-user">
+            <button
+              type="button"
+              className={`icon-button profile-menu-button${profileScreenOpen ? " is-active" : ""}`}
+              onClick={() => {
+                setCommunityFormOpen(false);
+                setEventFormOpen(false);
+                setSelectedEventId(null);
+                setSelectedCommunityId(null);
+                setProfileScreenOpen(true);
+                setMessage(null);
+                setBrowserView({ profile: true });
+              }}
+              aria-label="האזור האישי"
+              title="האזור האישי"
+            >
+              <ProfileMenuIcon />
+            </button>
             <ProfileAvatar
               imageUrl={displayAvatar}
               name={displayName}
@@ -2759,13 +3409,16 @@ export default function Home() {
           </div>
         </header>
 
-        {selectedCommunity ? (
+        {profileScreenOpen || communityFormOpen || eventFormOpen || selectedEvent ? null : selectedCommunity ? (
           <section className="community-detail-card">
             <div className="community-detail-toolbar">
               <button
                 type="button"
                 className="back-button"
-                onClick={() => setSelectedCommunityId(null)}
+                onClick={() => {
+                  setSelectedCommunityId(null);
+                  setBrowserView({});
+                }}
               >
                 חזרה למעגלים שלי
               </button>
@@ -3186,12 +3839,14 @@ export default function Home() {
                       onClick={() => {
                         setMessage(null);
                         setSelectedCommunityId(community.id);
+                        setBrowserView({ circleToken: community.share_token });
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           setMessage(null);
                           setSelectedCommunityId(community.id);
+                          setBrowserView({ circleToken: community.share_token });
                         }
                       }}
                     >
@@ -3233,7 +3888,27 @@ export default function Home() {
               {message && <p className={`message-box ${messageTone}`}>{message}</p>}
             </section>
 
-            <section className="profile-card">
+
+          </>
+        )}
+
+      </div>
+
+      {profileScreenOpen && (
+        <div className="edit-screen-shell">
+            <section className="profile-card profile-screen-card">
+              <div className="editor-screen-toolbar">
+                <button
+                  type="button"
+                  className="back-button"
+                  onClick={() => {
+                    setProfileScreenOpen(false);
+                    setBrowserView({});
+                  }}
+                >
+                  חזרה למסך הראשי
+                </button>
+              </div>
               <div className="section-heading">
                 <div>
                   <p className="section-kicker">הפרופיל שלי</p>
@@ -3346,10 +4021,8 @@ export default function Home() {
                 </div>
               ) : null}
             </section>
-          </>
-        )}
-
-      </div>
+        </div>
+      )}
 
       {(pendingShareToken || pendingEventShareToken) &&
         !inviteDismissed &&
@@ -3540,6 +4213,51 @@ export default function Home() {
                 disabled={memberActionBusy}
               >
                 {memberActionBusy ? "מעדכנים..." : memberActionDialog.confirmLabel}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {pendingBringDeletion && (
+        <div
+          className="modal-backdrop confirmation-backdrop"
+          role="presentation"
+          onMouseDown={() => {
+            if (!bringBusyKey) cancelBringDeletion();
+          }}
+        >
+          <section
+            className="confirmation-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="bring-deletion-title"
+            aria-describedby="bring-deletion-message"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="confirmation-symbol confirmation-symbol-danger" aria-hidden="true">
+              !
+            </div>
+            <h2 id="bring-deletion-title">מחיקת פריט</h2>
+            <p id="bring-deletion-message">
+              למחוק את „{pendingBringDeletion.item_name}” מרשימת מה שמביאים?
+            </p>
+            <div className="confirmation-actions">
+              <button
+                type="button"
+                className="confirmation-no-button"
+                onClick={cancelBringDeletion}
+                disabled={Boolean(bringBusyKey)}
+              >
+                לא
+              </button>
+              <button
+                type="button"
+                className="confirmation-yes-button confirmation-danger-button"
+                onClick={() => void confirmBringDeletion()}
+                disabled={Boolean(bringBusyKey)}
+              >
+                {bringBusyKey ? "מוחקים..." : "כן, למחוק"}
               </button>
             </div>
           </section>
@@ -3742,23 +4460,18 @@ export default function Home() {
       )}
 
       {communityFormOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={closeCommunityForm}>
-          <section
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="community-form-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="modal-close"
-              onClick={closeCommunityForm}
-              disabled={savingCommunity}
-              aria-label="סגירה"
-            >
-              ×
-            </button>
+        <div className="edit-screen-shell">
+          <section className="editor-page-card" aria-labelledby="community-form-title">
+            <div className="editor-screen-toolbar">
+              <button
+                type="button"
+                className="back-button"
+                onClick={closeCommunityForm}
+                disabled={savingCommunity}
+              >
+                חזרה
+              </button>
+            </div>
 
             <p className="section-kicker">{editingCommunity ? "עריכת מעגל" : "מעגל חדש"}</p>
             <h2 id="community-form-title">
@@ -3883,8 +4596,8 @@ export default function Home() {
         </div>
       )}
 
-      {selectedEvent && selectedCommunity && (
-        <div className="event-screen-backdrop" role="presentation">
+      {!profileScreenOpen && !communityFormOpen && !eventFormOpen && selectedEvent && selectedCommunity && (
+        <div className="event-screen-backdrop">
           <section className="event-detail-panel" aria-labelledby="event-detail-title">
             <div className="event-detail-toolbar">
               <button type="button" className="back-button" onClick={closeEventDetails}>
@@ -3926,9 +4639,22 @@ export default function Home() {
 
             <header className="event-detail-heading">
               <p className="section-kicker">אירוע במעגל {selectedCommunity.name}</p>
-              <h1 id="event-detail-title">{selectedEvent.title}</h1>
-              <time dateTime={selectedEvent.starts_at}>{formatEventDate(selectedEvent.starts_at, selectedEvent.ends_at)}</time>
-              {selectedEvent.location && <span className="event-detail-location">{selectedEvent.location}</span>}
+              <h1 id="event-detail-title">{getEventDisplayTitle(selectedEvent)}</h1>
+              {selectedEvent.location && (
+                <div className="event-location-row">
+                  <span className="event-detail-location">{selectedEvent.location}</span>
+                  <a
+                    className="event-navigation-link"
+                    href={getNavigationUrl(selectedEvent.location)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`ניווט אל ${selectedEvent.location}`}
+                    title="ניווט לכתובת"
+                  >
+                    <NavigationIcon />
+                  </a>
+                </div>
+              )}
               {selectedEvent.participant_limit !== null && (
                 <span className="event-detail-capacity">האירוע מוגבל ל־{selectedEvent.participant_limit} משתתפים</span>
               )}
@@ -3960,8 +4686,8 @@ export default function Home() {
                   <strong>{totalGoingPeople}</strong>
                   <span>
                     {selectedEvent.participant_limit !== null
-                      ? `סה״כ מגיעים מתוך ${selectedEvent.participant_limit}`
-                      : "סה״כ אנשים שמגיעים"}
+                      ? `סה"כ מגיעים מתוך ${selectedEvent.participant_limit}`
+                      : 'סה"כ מגיעים'}
                   </span>
                 </div>
               </div>
@@ -3978,6 +4704,7 @@ export default function Home() {
                   type="button"
                   className={`attendance-status-button${attendanceStatus === "going" ? " is-selected" : ""}`}
                   onClick={() => setAttendanceStatus("going")}
+                  disabled={savingAttendance}
                 >
                   מגיע/ה
                 </button>
@@ -3985,6 +4712,7 @@ export default function Home() {
                   type="button"
                   className={`attendance-status-button${attendanceStatus === "maybe" ? " is-selected" : ""}`}
                   onClick={() => setAttendanceStatus("maybe")}
+                  disabled={savingAttendance}
                 >
                   אולי
                 </button>
@@ -3992,6 +4720,7 @@ export default function Home() {
                   type="button"
                   className={`attendance-status-button${attendanceStatus === "not_going" ? " is-selected" : ""}`}
                   onClick={() => setAttendanceStatus("not_going")}
+                  disabled={savingAttendance}
                 >
                   לא מגיע/ה
                 </button>
@@ -4007,6 +4736,7 @@ export default function Home() {
                       max="20"
                       value={attendancePartySize}
                       onChange={(event) => setAttendancePartySize(event.target.value)}
+                      disabled={savingAttendance}
                     />
                     <small>כולל אותך.</small>
                   </label>
@@ -4016,6 +4746,7 @@ export default function Home() {
                       type="text"
                       value={attendanceGuestNames}
                       onChange={(event) => setAttendanceGuestNames(event.target.value)}
+                      disabled={savingAttendance}
                       maxLength={300}
                       placeholder="לא חובה"
                     />
@@ -4029,6 +4760,7 @@ export default function Home() {
                   <textarea
                     value={attendanceNote}
                     onChange={(event) => setAttendanceNote(event.target.value)}
+                    disabled={savingAttendance}
                     maxLength={600}
                     rows={3}
                     placeholder="לא חובה"
@@ -4036,154 +4768,211 @@ export default function Home() {
                 </label>
               )}
 
-              <button
-                type="button"
-                className={`primary-button attendance-save-button${attendanceFormIsDirty ? " save-button-dirty" : ""}`}
-                onClick={() => void saveAttendance()}
-                disabled={savingAttendance || !attendanceStatus}
-              >
-                {savingAttendance ? "שומרים..." : ownEventAttendance ? "עדכון ההשתתפות" : "שמירת ההשתתפות"}
-              </button>
+              <div className="attendance-form-actions">
+                {ownEventAttendance && (
+                  <button
+                    type="button"
+                    className="member-remove-button attendance-delete-button"
+                    onClick={() =>
+                      setPendingMemberAction({ type: "attendance", attendance: ownEventAttendance })
+                    }
+                  >
+                    מחיקת ההשתתפות
+                  </button>
+                )}
+              </div>
 
               {attendanceMessage && (
                 <p className={`message-box ${attendanceMessageTone}`}>{attendanceMessage}</p>
               )}
             </section>
 
-            <section className="event-bring-section">
-              <div className="section-heading-compact">
-                <p className="section-kicker">מתארגנים יחד</p>
-                <h2>מה כל אחד מביא?</h2>
-              </div>
-
-              {bringLoading ? (
-                <div className="inline-loading bring-loading">
-                  <span className="spinner spinner-small" />
-                  טוענים את הרשימה...
+            {ownEventAttendance?.status === "going" && (
+              <section className="event-bring-section">
+                <div className="section-heading-compact">
+                  <p className="section-kicker">מתארגנים יחד</p>
+                  <h2>מה כל אחד מביא?</h2>
                 </div>
-              ) : (
-                <>
-                  {selectedEvent.bring_mode === "planned" && (
-                    <div className="planned-bring-list">
-                      {eventBringNeeds.length === 0 ? (
-                        <p className="attendance-empty-state">מנהלי האירוע עדיין לא הגדירו מה צריך.</p>
-                      ) : (
-                        eventBringNeeds.map((need) => {
-                          const needContributions = eventBringContributions.filter(
-                            (contribution) => contribution.need_id === need.id,
-                          );
-                          const committedQuantity = needContributions.reduce(
-                            (total, contribution) => total + contribution.quantity,
-                            0,
-                          );
-                          const ownContribution = needContributions.find(
-                            (contribution) => contribution.user_id === user.id,
-                          );
 
-                          return (
-                            <article className="bring-need-card" key={need.id}>
-                              <div className="bring-need-heading">
-                                <div>
+                {bringLoading ? (
+                  <div className="inline-loading bring-loading">
+                    <span className="spinner spinner-small" />
+                    טוענים את הרשימה...
+                  </div>
+                ) : (
+                  <>
+                    {bringDisplayRows.length > 0 ? (
+                      <div className="bring-table" role="table" aria-label="מה מביאים לאירוע">
+                        <div className="bring-table-header" role="row">
+                          <span role="columnheader">פריט</span>
+                          <span role="columnheader">מי מביא</span>
+                          <span role="columnheader">כמות</span>
+                          <span role="columnheader">הערה</span>
+                        </div>
+
+                        {bringDisplayRows.map((row) => {
+                          if (row.kind === "need") {
+                            const need = row.need;
+                            const needContributions = eventBringContributions.filter(
+                              (contribution) => contribution.need_id === need.id,
+                            );
+                            const committedQuantity = needContributions.reduce(
+                              (total, contribution) => total + contribution.quantity,
+                              0,
+                            );
+                            const ownContribution = needContributions.find(
+                              (contribution) => contribution.user_id === user.id,
+                            );
+
+                            return (
+                              <div className="bring-table-row" role="row" key={`need-${need.id}`}>
+                                <div className="bring-table-item" role="cell">
+                                  <span className="bring-mobile-label">פריט</span>
                                   <strong>{need.item_name}</strong>
-                                  <span>צריך {need.quantity_needed} · התחייבו ל־{committedQuantity}</span>
+                                  <small>
+                                    צריך {need.quantity_needed} · התחייבו ל־{committedQuantity} · {committedQuantity >= need.quantity_needed
+                                      ? "מסודר"
+                                      : `חסרים ${need.quantity_needed - committedQuantity}`}
+                                  </small>
                                 </div>
-                                <span className={committedQuantity >= need.quantity_needed ? "bring-complete" : "bring-missing"}>
-                                  {committedQuantity >= need.quantity_needed
-                                    ? "מסודר"
-                                    : `חסרים ${need.quantity_needed - committedQuantity}`}
+
+                                <div className="bring-table-people" role="cell">
+                                  <span className="bring-mobile-label">מי מביא</span>
+                                  {needContributions.length > 0 ? (
+                                    needContributions.map((contribution) => (
+                                      <span className="bring-person-line bring-table-subrow" key={contribution.id}>
+                                        <strong>{contribution.full_name}</strong>
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="bring-empty-cell" aria-hidden="true" />
+                                  )}
+                                </div>
+
+                                <div className="bring-table-quantity" role="cell">
+                                  <span className="bring-mobile-label">כמות</span>
+                                  {needContributions.map((contribution) =>
+                                    contribution.user_id === user.id ? (
+                                      <input
+                                        key={contribution.id}
+                                        type="number"
+                                        min="0"
+                                        max="1000"
+                                        value={bringQuantityByNeed[need.id] ?? String(contribution.quantity)}
+                                        onChange={(event) =>
+                                          scheduleNeedContributionSave(need, event.target.value)
+                                        }
+                                        aria-label={`כמה ${need.item_name} אני מביא`}
+                                      />
+                                    ) : (
+                                      <span className="bring-table-subrow bring-quantity-value" key={contribution.id}>
+                                        {contribution.quantity}
+                                      </span>
+                                    ),
+                                  )}
+                                  {!ownContribution && (
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="1000"
+                                      value={bringQuantityByNeed[need.id] ?? "0"}
+                                      onChange={(event) =>
+                                        scheduleNeedContributionSave(need, event.target.value)
+                                      }
+                                      aria-label={`כמה ${need.item_name} אני מביא`}
+                                    />
+                                  )}
+                                </div>
+
+                                <div className="bring-table-note" role="cell">
+                                  <span className="bring-mobile-label">הערה</span>
+                                  {needContributions.map((contribution) =>
+                                    contribution.user_id === user.id ? (
+                                      <input
+                                        key={contribution.id}
+                                        type="text"
+                                        maxLength={300}
+                                        value={
+                                          bringNoteByContribution[contribution.id] ??
+                                          contribution.note
+                                        }
+                                        onChange={(event) =>
+                                          scheduleContributionNoteSave(
+                                            contribution,
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder={`לדוגמה: ${need.item_name} פטריות בשמנת`}
+                                      />
+                                    ) : (
+                                      <span className="bring-table-subrow bring-empty-cell" key={contribution.id}>
+                                        {contribution.note || "—"}
+                                      </span>
+                                    ),
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          const contribution = row.contribution;
+                          return (
+                            <div className="bring-table-row" role="row" key={`free-${contribution.id}`}>
+                              <div className="bring-table-item" role="cell">
+                                <span className="bring-mobile-label">פריט</span>
+                                <strong>{contribution.item_name}</strong>
+                                {selectedEvent.bring_mode === "planned" && <small>פריט שנוסף על ידי משתתף</small>}
+                              </div>
+                              <div className="bring-table-people" role="cell">
+                                <span className="bring-mobile-label">מי מביא</span>
+                                <span className="bring-person-line">
+                                  <strong>{contribution.full_name}</strong>
+                                  {contribution.note && <small>{contribution.note}</small>}
                                 </span>
                               </div>
-
-                              {needContributions.length > 0 && (
-                                <div className="bring-contributors-list">
-                                  {needContributions.map((contribution) => (
-                                    <span key={contribution.id}>
-                                      {contribution.full_name} ({contribution.quantity})
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-
-                              <div className="bring-claim-row">
-                                <label>
-                                  <span>כמה אני מביא/ה?</span>
+                              <div className="bring-table-quantity" role="cell">
+                                <span className="bring-mobile-label">כמות</span>
+                                {contribution.user_id === user.id ? (
                                   <input
                                     type="number"
-                                    min="1"
+                                    min="0"
                                     max="1000"
-                                    value={bringQuantityByNeed[need.id] ?? "1"}
-                                    onChange={(event) =>
-                                      setBringQuantityByNeed((current) => ({
-                                        ...current,
-                                        [need.id]: event.target.value,
-                                      }))
+                                    value={
+                                      freeBringQuantityByContribution[contribution.id] ??
+                                      String(contribution.quantity)
                                     }
+                                    onChange={(event) =>
+                                      scheduleFreeContributionSave(contribution, event.target.value)
+                                    }
+                                    aria-label={`כמות ${contribution.item_name}`}
                                   />
-                                </label>
-                                <button
-                                  type="button"
-                                  className="primary-button compact-button"
-                                  onClick={() => void saveNeedContribution(need)}
-                                  disabled={bringBusyKey === `need-${need.id}`}
-                                >
-                                  {ownContribution ? "עדכון" : "אני מביא/ה"}
-                                </button>
-                                {ownContribution && (
-                                  <button
-                                    type="button"
-                                    className="secondary-button compact-button"
-                                    onClick={() => void removeBringContribution(ownContribution)}
-                                    disabled={bringBusyKey === `contribution-${ownContribution.id}`}
-                                  >
-                                    ביטול
-                                  </button>
+                                ) : (
+                                  <strong>{contribution.quantity}</strong>
                                 )}
                               </div>
-                            </article>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-
-                  <div className="free-bring-area">
-                    <h3>{selectedEvent.bring_mode === "planned" ? "דברים נוספים" : "רשימת מה שמביאים"}</h3>
-                    {selectedEvent.bring_mode === "free" && (
-                      <p>הרשימה חופשית. כל משתתף יכול להוסיף מה הוא מביא.</p>
-                    )}
-
-                    {freeBringContributions.length > 0 && (
-                      <div className="free-bring-list">
-                        {freeBringContributions.map((contribution) => (
-                          <article className="free-bring-row" key={contribution.id}>
-                            <ProfileAvatar
-                              imageUrl={contribution.avatar_url ?? contribution.google_avatar_url}
-                              name={contribution.full_name}
-                              size="small"
-                              onOpen={openImage}
-                            />
-                            <div>
-                              <strong>{contribution.item_name}</strong>
-                              <span>{contribution.full_name} · כמות {contribution.quantity}</span>
+                              <div className="bring-table-note" role="cell">
+                                <span className="bring-mobile-label">הערה</span>
+                                <span className="bring-empty-cell">{contribution.note || "—"}</span>
+                              </div>
                             </div>
-                            {contribution.user_id === user.id && (
-                              <button
-                                type="button"
-                                className="member-remove-button"
-                                onClick={() => void removeBringContribution(contribution)}
-                                disabled={bringBusyKey === `contribution-${contribution.id}`}
-                              >
-                                הסרה
-                              </button>
-                            )}
-                          </article>
-                        ))}
+                          );
+                        })}
                       </div>
+                    ) : (
+                      <p className="attendance-empty-state">עדיין לא נוספו פריטים לרשימה.</p>
                     )}
 
-                    <div className="free-bring-add-row">
+                    {selectedEvent.bring_mode === "free" && (
+                      <p className="bring-free-intro">הרשימה חופשית. כל משתתף יכול להוסיף מה הוא מביא.</p>
+                    )}
+
+                    <div className="free-bring-add-row free-bring-autosave-add bring-table-add-row">
                       <label>
-                        <span>מה אני מביא/ה?</span>
+                        <span>
+                          {selectedEvent.bring_mode === "planned"
+                            ? "אני אביא משהו שלא קיים בטבלה"
+                            : "מה אני מביא/ה?"}
+                        </span>
                         <input
                           type="text"
                           value={bringItemName}
@@ -4200,23 +4989,30 @@ export default function Home() {
                           max="1000"
                           value={bringItemQuantity}
                           onChange={(event) => setBringItemQuantity(event.target.value)}
+                          placeholder="1"
                         />
                       </label>
                       <button
                         type="button"
-                        className="primary-button compact-button"
-                        onClick={() => void addFreeBringContribution()}
-                        disabled={bringBusyKey === "free-add"}
+                        className="primary-button compact-button free-bring-add-button"
+                        onClick={tryAddFreeBringItem}
+                        disabled={
+                          bringBusyKey === "free-add" ||
+                          !bringItemName.trim() ||
+                          !Number.isInteger(Number.parseInt(bringItemQuantity, 10)) ||
+                          Number.parseInt(bringItemQuantity, 10) < 1 ||
+                          Number.parseInt(bringItemQuantity, 10) > 1000
+                        }
                       >
-                        הוספה
+                        הוספה לטבלה
                       </button>
                     </div>
-                  </div>
-                </>
-              )}
+                  </>
+                )}
 
-              {bringMessage && <p className={`message-box ${bringMessageTone}`}>{bringMessage}</p>}
-            </section>
+                {bringMessage && <p className={`message-box ${bringMessageTone}`}>{bringMessage}</p>}
+              </section>
+            )}
 
             <section className="event-attendees-section">
               <div className="section-heading-compact">
@@ -4264,6 +5060,17 @@ export default function Home() {
                                   <p><b>הערה:</b> {attendance.note}</p>
                                 )}
                               </div>
+                              {canDeleteAnyEventAttendance && attendance.user_id !== user.id && (
+                                <button
+                                  type="button"
+                                  className="member-remove-button attendance-row-delete-button"
+                                  onClick={() =>
+                                    setPendingMemberAction({ type: "attendance", attendance })
+                                  }
+                                >
+                                  מחיקה
+                                </button>
+                              )}
                             </article>
                           ))}
                         </div>
@@ -4278,32 +5085,25 @@ export default function Home() {
       )}
 
       {eventFormOpen && selectedCommunity && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => closeEventForm()}>
-          <section
-            className="modal-card event-modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="event-form-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="modal-close"
-              onClick={() => closeEventForm()}
-              disabled={savingEvent}
-              aria-label="סגירה"
-            >
-              ×
-            </button>
+        <div className="edit-screen-shell">
+          <section className="editor-page-card event-editor-card" aria-labelledby="event-form-title">
+            <div className="editor-screen-toolbar">
+              <button
+                type="button"
+                className="back-button"
+                onClick={() => closeEventForm()}
+                disabled={savingEvent}
+              >
+                חזרה
+              </button>
+            </div>
 
-            <p className="section-kicker">{editingEvent ? "עריכת אירוע" : "אירוע חדש"}</p>
-            <h2 id="event-form-title">
+            <h2 id="event-form-title" className="visually-hidden">
               {editingEvent ? "עריכת האירוע" : "יצירת אירוע"}
             </h2>
 
             <div className="profile-form modal-form">
-              <div className="image-upload-field">
-                <span className="field-label">תמונת האירוע</span>
+              <div className="image-upload-field event-image-upload-field">
                 <input
                   ref={eventImageInputRef}
                   className="hidden-file-input"
@@ -4320,9 +5120,8 @@ export default function Home() {
                   className="primary-button upload-image-button"
                   onClick={() => eventImageInputRef.current?.click()}
                 >
-                  {eventFormImageUrl ? "החלפת תמונה" : "צירוף תמונה"}
+                  צירוף תמונה
                 </button>
-                <small>התמונה אינה חייבת להיות ריבועית. עד 3MB.</small>
 
                 {eventFormImageUrl && (
                   <button
@@ -4366,6 +5165,17 @@ export default function Home() {
                   />
                 </label>
               </div>
+
+              <label>
+                <span>מיקום</span>
+                <input
+                  type="text"
+                  value={eventLocation}
+                  onChange={(event) => setEventLocation(event.target.value)}
+                  maxLength={200}
+                  placeholder="כתובת או שם המקום"
+                />
+              </label>
 
               <div className="approval-setting event-capacity-setting">
                 <span className="field-label">האם האירוע מוגבל במספר המשתתפים?</span>
@@ -4435,7 +5245,7 @@ export default function Home() {
                         >
                           <option value="">העתקה מאירוע אחר...</option>
                           {copyableEvents.map((event) => (
-                            <option value={event.id} key={event.id}>{event.title}</option>
+                            <option value={event.id} key={event.id}>{event.title} · {formatShortDate(event.starts_at)}</option>
                           ))}
                         </select>
                         <button
@@ -4498,17 +5308,6 @@ export default function Home() {
                   </div>
                 )}
               </div>
-
-              <label>
-                <span>מיקום</span>
-                <input
-                  type="text"
-                  value={eventLocation}
-                  onChange={(event) => setEventLocation(event.target.value)}
-                  maxLength={200}
-                  placeholder="כתובת או שם המקום"
-                />
-              </label>
 
               <label>
                 <span>תיאור</span>
