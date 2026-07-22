@@ -21,11 +21,10 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.7.5";
+const APP_VERSION = "v1.0.7.6";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
-const PENDING_LEGAL_ACCEPTANCE_KEY = `circles-legal-acceptance-${LEGAL_VERSION}`;
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
@@ -1525,34 +1524,6 @@ export default function Home() {
         loadedProfile = refreshedProfile ?? loadedProfile;
       }
 
-      const pendingLegalAcceptance =
-        window.sessionStorage.getItem(PENDING_LEGAL_ACCEPTANCE_KEY) === "1";
-      const hasCurrentLegalAcceptance = Boolean(
-        loadedProfile.legal_accepted_at && loadedProfile.legal_version === LEGAL_VERSION,
-      );
-
-      if (pendingLegalAcceptance && !hasCurrentLegalAcceptance) {
-        const acceptedAt = new Date().toISOString();
-        const { data: acceptedProfile, error: acceptanceError } = await supabase
-          .from("profiles")
-          .update({
-            legal_accepted_at: acceptedAt,
-            legal_version: LEGAL_VERSION,
-          })
-          .eq("id", currentUser.id)
-          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
-          .single<Profile>();
-
-        if (acceptanceError) {
-          console.error("Saving legal acceptance after Google sign-in failed", acceptanceError);
-          setMessageTone("error");
-          setMessage("לא הצלחנו לשמור את אישור תנאי השימוש. נסו שוב.");
-        } else {
-          loadedProfile = acceptedProfile;
-          window.sessionStorage.removeItem(PENDING_LEGAL_ACCEPTANCE_KEY);
-        }
-      }
-
       setProfile(loadedProfile);
       setFullName(loadedProfile.full_name);
       setAbout(loadedProfile.about);
@@ -2032,18 +2003,9 @@ export default function Home() {
 
   function updateLegalConsentChecked(checked: boolean) {
     setLegalConsentChecked(checked);
-    if (!checked) window.sessionStorage.removeItem(PENDING_LEGAL_ACCEPTANCE_KEY);
   }
 
   async function signInWithGoogle() {
-    if (!legalConsentChecked) {
-      setMessageTone("error");
-      setMessage("יש לאשר תחילה את תנאי השימוש ומדיניות הפרטיות.");
-      setLegalScreenOpen(true);
-      return;
-    }
-
-    window.sessionStorage.setItem(PENDING_LEGAL_ACCEPTANCE_KEY, "1");
     setAuthBusy(true);
     setMessage(null);
 
@@ -2106,6 +2068,8 @@ export default function Home() {
       clearSelectedImage(current);
       return null;
     });
+    setLegalConsentChecked(false);
+    setLegalScreenOpen(false);
 
     setAuthBusy(false);
   }
@@ -4038,14 +4002,7 @@ export default function Home() {
   }
 
   async function acceptLegalConsent() {
-    if (!legalConsentChecked) return;
-
-    if (!user) {
-      window.sessionStorage.setItem(PENDING_LEGAL_ACCEPTANCE_KEY, "1");
-      setMessage(null);
-      setLegalScreenOpen(false);
-      return;
-    }
+    if (!user || !legalConsentChecked) return;
 
     setLegalConsentSaving(true);
     setMessage(null);
@@ -4070,7 +4027,7 @@ export default function Home() {
       );
     } else {
       setProfile(data);
-      window.sessionStorage.removeItem(PENDING_LEGAL_ACCEPTANCE_KEY);
+      setLegalConsentChecked(false);
       setLegalScreenOpen(false);
       setMessageTone("success");
       setMessage("האישור נשמר.");
@@ -4197,31 +4154,11 @@ export default function Home() {
             </div>
           )}
 
-          <div className="login-consent-row">
-            <input
-              id="login-legal-consent"
-              type="checkbox"
-              checked={legalConsentChecked}
-              onChange={(event) => updateLegalConsentChecked(event.target.checked)}
-            />
-            <label htmlFor="login-legal-consent">קראתי ואני מאשר/ת את</label>
-            <button
-              type="button"
-              className="inline-link-button"
-              onClick={() => {
-                setMessage(null);
-                setLegalScreenOpen(true);
-              }}
-            >
-              תנאי השימוש ומדיניות הפרטיות
-            </button>
-          </div>
-
           <button
             type="button"
             className="primary-button google-button"
             onClick={signInWithGoogle}
-            disabled={authBusy || !legalConsentChecked}
+            disabled={authBusy}
           >
             {authBusy ? <span className="spinner spinner-small" /> : <GoogleIcon />}
             <span>{authBusy ? "פותחים את Google..." : "כניסה באמצעות Google"}</span>
