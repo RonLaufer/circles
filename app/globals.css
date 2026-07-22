@@ -3329,7 +3329,7 @@ html.is-localhost {
 }
 
 .edit-screen-shell {
-  width: min(calc(100% - 28px), 980px);
+  width: min(100%, 980px);
   margin: 22px auto 40px;
 }
 
@@ -3348,8 +3348,9 @@ html.is-localhost {
   margin: 0 auto;
 }
 
+.community-editor-card,
 .event-editor-card {
-  max-width: 860px;
+  max-width: 100%;
 }
 
 .editor-screen-toolbar {
@@ -3399,7 +3400,7 @@ html.is-localhost {
 
 @media (max-width: 680px) {
   .edit-screen-shell {
-    width: calc(100% - 16px);
+    width: 100%;
     margin: 10px auto 28px;
   }
 

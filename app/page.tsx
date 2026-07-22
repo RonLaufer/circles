@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.5.5";
+const APP_VERSION = "v1.0.5.7";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -5361,7 +5361,7 @@ export default function Home() {
 
       {communityFormOpen && (
         <div className="edit-screen-shell">
-          <section className="editor-page-card" aria-labelledby="community-form-title">
+          <section className="editor-page-card community-editor-card" aria-labelledby="community-form-title">
             <div className="editor-screen-toolbar">
               <button
                 type="button"
