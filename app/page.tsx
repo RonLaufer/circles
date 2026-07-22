@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.8.4";
+const APP_VERSION = "v1.0.8.5";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -1543,9 +1543,14 @@ export default function Home() {
 
   useEffect(() => {
     const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    const previousScrollRestoration = window.history.scrollRestoration;
     document.documentElement.classList.toggle("is-localhost", isLocalhost);
+    window.history.scrollRestoration = "manual";
 
-    return () => document.documentElement.classList.remove("is-localhost");
+    return () => {
+      document.documentElement.classList.remove("is-localhost");
+      window.history.scrollRestoration = previousScrollRestoration;
+    };
   }, []);
 
   useEffect(() => {
@@ -1669,6 +1674,45 @@ export default function Home() {
 
     return () => subscription.unsubscribe();
   }, [loadCommunities, loadProfile, loadSharedEvent, loadSharedInvite, supabase]);
+
+  const activePageKey = !user
+    ? "login"
+    : legalScreenOpen
+      ? "legal"
+      : eventFormOpen
+        ? `event-editor:${editingEventId ?? "new"}`
+        : communityFormOpen
+          ? `community-editor:${editingCommunityId ?? "new"}`
+          : shareEvent
+            ? `event-share:${shareEvent.id}`
+            : profileScreenOpen
+              ? "profile"
+              : selectedEventId
+                ? `event:${selectedEventId}`
+                : selectedCommunityId
+                  ? `community:${selectedCommunityId}`
+                  : "home";
+
+  useLayoutEffect(() => {
+    const resetPageViewport = () => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+
+      document.documentElement.scrollLeft = 0;
+      document.body.scrollLeft = 0;
+      window.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    };
+
+    resetPageViewport();
+    const frame = window.requestAnimationFrame(resetPageViewport);
+    const timer = window.setTimeout(resetPageViewport, 50);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [activePageKey]);
 
   useEffect(() => {
     if (!user) {
@@ -5589,7 +5633,7 @@ export default function Home() {
                 onClick={closeCommunityForm}
                 disabled={savingCommunity}
               >
-                ביטול
+                סגירה ללא שמירה
               </button>
               <button
                 type="button"
@@ -6496,7 +6540,7 @@ export default function Home() {
                 onClick={() => closeEventForm()}
                 disabled={savingEvent}
               >
-                ביטול
+                סגירה ללא שמירה
               </button>
               <button
                 type="button"
