@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.4.7";
+const APP_VERSION = "v1.0.4.8";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -3203,6 +3203,7 @@ export default function Home() {
       return false;
     }
     if (selectedCommunity) await loadCommunityEvents(selectedCommunity.id);
+    closeEventForm(true);
     return true;
   }
 
@@ -3215,6 +3216,7 @@ export default function Home() {
       setMessage(`מחיקת האירוע נכשלה. ${formatSupabaseError(error)}`);
       return false;
     }
+    closeEventForm(true);
     setSelectedEventId(null);
     if (selectedCommunity) {
       setBrowserView({ circleToken: selectedCommunity.share_token }, "replace");
@@ -5292,35 +5294,13 @@ export default function Home() {
                   שיתוף
                 </button>
                 {canManageEvents && (
-                  <>
-                    <button
-                      type="button"
-                      className="primary-button compact-button"
-                      onClick={() => openEditEvent(selectedEvent)}
-                    >
-                      עריכת האירוע
-                    </button>
-                    <button
-                      type="button"
-                      className={selectedEventIsCancelled ? "secondary-button compact-button" : "danger-button compact-button"}
-                      onClick={() =>
-                        setPendingMemberAction({
-                          type: "cancel_event",
-                          event: selectedEvent,
-                          cancel: !selectedEventIsCancelled,
-                        })
-                      }
-                    >
-                      {selectedEventIsCancelled ? "פתיחת האירוע מחדש" : "ביטול האירוע"}
-                    </button>
-                    <button
-                      type="button"
-                      className="danger-button compact-button"
-                      onClick={() => setPendingMemberAction({ type: "delete_event", event: selectedEvent })}
-                    >
-                      מחיקת האירוע
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    className="primary-button compact-button"
+                    onClick={() => openEditEvent(selectedEvent)}
+                  >
+                    עריכת האירוע
+                  </button>
                 )}
               </div>
             </div>
@@ -6222,6 +6202,33 @@ export default function Home() {
                     : "יצירת האירוע"}
               </button>
             </div>
+
+            {editingEvent && canManageEvents && (
+              <div className="event-management-actions" aria-label="ניהול האירוע">
+                <button
+                  type="button"
+                  className={editingEvent.cancelled_at ? "secondary-button" : "danger-button"}
+                  onClick={() =>
+                    setPendingMemberAction({
+                      type: "cancel_event",
+                      event: editingEvent,
+                      cancel: !editingEvent.cancelled_at,
+                    })
+                  }
+                  disabled={savingEvent}
+                >
+                  {editingEvent.cancelled_at ? "פתיחת האירוע מחדש" : "ביטול האירוע"}
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => setPendingMemberAction({ type: "delete_event", event: editingEvent })}
+                  disabled={savingEvent}
+                >
+                  מחיקת האירוע
+                </button>
+              </div>
+            )}
 
             {message && <p className={`message-box ${messageTone}`}>{message}</p>}
           </section>
