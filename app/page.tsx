@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.6.6";
+const APP_VERSION = "v1.0.7.3";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -5458,7 +5458,7 @@ export default function Home() {
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.target.value = "";
-                    if (file) void prepareVideo(file, "community");
+                    if (file) prepareCommunityVideo(file);
                   }}
                 />
                 <button
