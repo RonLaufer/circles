@@ -16,6 +16,7 @@ type SharedEvent = {
   participant_limit: number | null;
   share_token: string;
   community_name: string;
+  community_logo_url: string | null;
   community_share_token: string;
 };
 
@@ -76,11 +77,14 @@ export async function generateMetadata({
     [dateText, event.location].filter(Boolean).join(" · ") ||
     `הצטרפו לאירוע „${event.title}” במערכת מעגלים.`;
   const url = `${SITE_ORIGIN}/event/${event.share_token}`;
-  const images = event.image_url
+  const shareImageUrl = event.image_url ?? event.community_logo_url;
+  const images = shareImageUrl
     ? [
         {
-          url: event.image_url,
-          alt: `תמונת האירוע ${event.title}`,
+          url: shareImageUrl,
+          alt: event.image_url
+            ? `תמונת האירוע ${event.title}`
+            : `תמונת המעגל ${event.community_name}`,
         },
       ]
     : undefined;
@@ -108,10 +112,10 @@ export async function generateMetadata({
       images,
     },
     twitter: {
-      card: event.image_url ? "summary_large_image" : "summary",
+      card: shareImageUrl ? "summary_large_image" : "summary",
       title: event.title,
       description,
-      images: event.image_url ? [event.image_url] : undefined,
+      images: shareImageUrl ? [shareImageUrl] : undefined,
     },
   };
 }

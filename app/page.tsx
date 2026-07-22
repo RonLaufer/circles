@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.4.2";
+const APP_VERSION = "v1.0.4.3";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -3271,6 +3271,7 @@ export default function Home() {
     : "";
   const eventShareUrl = shareEvent ? getEventShareUrl(shareEvent.share_token) : "";
   const eventShareText = shareEvent ? getEventShareText(shareEvent, eventShareUrl) : "";
+  const eventShareImageUrl = shareEvent?.image_url ?? selectedCommunity?.logo_url ?? null;
   const profileIsDirty = Boolean(
     profile &&
       (fullName !== profile.full_name ||
@@ -4383,16 +4384,27 @@ export default function Home() {
               ×
             </button>
 
-            {shareEvent.image_url && (
+            {eventShareImageUrl && (
               <button
                 type="button"
                 className="image-zoom-button share-preview-image-button"
-                onClick={() => openImage(shareEvent.image_url!, `תמונת האירוע ${shareEvent.title}`)}
+                onClick={() =>
+                  openImage(
+                    eventShareImageUrl,
+                    shareEvent.image_url
+                      ? `תמונת האירוע ${shareEvent.title}`
+                      : `תמונת המעגל ${selectedCommunity?.name ?? shareEvent.title}`,
+                  )
+                }
               >
                 <img
                   className="share-preview-image"
-                  src={shareEvent.image_url}
-                  alt={`תמונת האירוע ${shareEvent.title}`}
+                  src={eventShareImageUrl}
+                  alt={
+                    shareEvent.image_url
+                      ? `תמונת האירוע ${shareEvent.title}`
+                      : `תמונת המעגל ${selectedCommunity?.name ?? shareEvent.title}`
+                  }
                 />
               </button>
             )}
