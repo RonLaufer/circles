@@ -3641,24 +3641,33 @@ html.is-localhost {
   line-height: 1.28;
 }
 
-.bring-table {
-  display: grid;
-  overflow: hidden;
+.bring-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--line);
   border-radius: 16px;
+  background: #fff;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bring-table {
+  display: grid;
+  min-width: 0;
+  overflow: visible;
   background: #fff;
 }
 
 .bring-table-header,
 .bring-table-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1.25fr) minmax(160px, 1fr) 105px minmax(170px, 1.2fr);
+  grid-template-columns: minmax(180px, 1.45fr) minmax(170px, 1fr) 118px;
   align-items: stretch;
 }
 
 .bring-table-header {
   background: #eef2f7;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   font-weight: 750;
 }
 
@@ -3680,10 +3689,9 @@ html.is-localhost {
 
 .bring-table-item,
 .bring-table-people,
-.bring-table-note,
 .bring-table-quantity {
   display: grid;
-  align-content: center;
+  align-content: start;
   gap: 5px;
 }
 
@@ -3715,6 +3723,65 @@ html.is-localhost {
   font: inherit;
 }
 
+.bring-quantity-stepper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.bring-quantity-stepper input {
+  min-width: 0;
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.bring-quantity-stepper input::-webkit-inner-spin-button,
+.bring-quantity-stepper input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.bring-step-buttons {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+}
+
+.bring-step-buttons button {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 1px solid #cbd5e1;
+  border-inline-start: 0;
+  border-radius: 0;
+  background: #f8fafc;
+  color: #334155;
+  padding: 0;
+  font-size: 0.58rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bring-step-buttons button:first-child {
+  border-start-end-radius: 11px;
+  border-bottom: 0;
+}
+
+.bring-step-buttons button:last-child {
+  border-end-end-radius: 11px;
+}
+
+.bring-step-buttons button:disabled {
+  color: #b6bec9;
+  background: #f1f5f9;
+  cursor: default;
+}
+
 .bring-mobile-label {
   display: none;
   color: #64748b;
@@ -3733,64 +3800,135 @@ html.is-localhost {
 }
 
 @media (max-width: 760px) {
+  .bring-table-scroll {
+    overflow-x: hidden;
+    border-radius: 14px;
+  }
+
+  .bring-table {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .bring-table-header,
+  .bring-table-row {
+    width: 100%;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) 76px;
+  }
+
   .bring-table-header {
-    display: none;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    text-align: center;
   }
 
-  .bring-table-row {
-    grid-template-columns: 1fr 1fr;
-    padding: 4px 0;
-  }
-
+  .bring-table-header > span,
   .bring-table-row > * {
-    border-inline-start: 0;
-    padding: 9px 11px;
-  }
-
-  .bring-table-item,
-  .bring-table-people {
-    grid-column: 1 / -1;
-  }
-
-  .bring-table-people {
-    border-top: 1px dashed var(--line);
-  }
-
-  .bring-table-quantity,
-  .bring-table-note {
-    border-top: 1px dashed var(--line);
-  }
-
-  .bring-table-note {
-    border-inline-start: 1px dashed var(--line);
-  }
-
-  .bring-mobile-label {
-    display: block;
-  }
-}
-
-@media (max-width: 480px) {
-  .bring-table-row {
-    grid-template-columns: 1fr;
+    min-width: 0;
+    padding: 8px 5px;
+    overflow-wrap: anywhere;
   }
 
   .bring-table-item,
   .bring-table-people,
-  .bring-table-quantity,
-  .bring-table-note {
-    grid-column: 1;
+  .bring-table-quantity {
+    gap: 4px;
+    font-size: 0.76rem;
   }
 
-  .bring-table-note {
-    border-inline-start: 0;
+  .bring-table-item strong,
+  .bring-person-line strong {
+    font-size: 0.82rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .bring-table-item small,
+  .bring-person-line small,
+  .bring-empty-cell {
+    font-size: 0.64rem;
+    line-height: 1.3;
+  }
+
+  .bring-table-people,
+  .bring-table-quantity {
+    text-align: center;
+  }
+
+  .bring-table-people .bring-table-subrow,
+  .bring-table-quantity .bring-table-subrow {
+    justify-content: center;
+  }
+
+  .bring-table input {
+    min-width: 0;
+    min-height: 36px;
+    border-radius: 8px;
+    padding: 5px 4px;
+    font-size: 0.72rem;
+  }
+
+  .bring-table-quantity input {
+    text-align: center;
+    padding-inline: 2px;
+  }
+
+  .bring-quantity-stepper {
+    grid-template-columns: minmax(0, 1fr) 24px;
+  }
+
+  .bring-step-buttons button {
+    font-size: 0.52rem;
+  }
+
+  .bring-step-buttons button:first-child {
+    border-start-end-radius: 8px;
+  }
+
+  .bring-step-buttons button:last-child {
+    border-end-end-radius: 8px;
+  }
+
+  .bring-table-subrow {
+    min-height: 36px;
+  }
+
+  .bring-mobile-label {
+    display: none;
+  }
+}
+
+@media (max-width: 390px) {
+  .bring-table-header,
+  .bring-table-row {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.95fr) 72px;
+  }
+
+  .bring-table-header {
+    font-size: 0.76rem;
+  }
+
+  .bring-table-header > span,
+  .bring-table-row > * {
+    padding-inline: 4px;
+  }
+
+  .bring-table-item,
+  .bring-table-people,
+  .bring-table-quantity {
+    font-size: 0.7rem;
+  }
+
+  .bring-table-item strong,
+  .bring-person-line strong {
+    font-size: 0.76rem;
   }
 }
 
 .bring-table-subrow {
   min-height: 42px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .bring-own-new-row {
@@ -5034,5 +5172,145 @@ body.editor-screen-open {
   .legal-toolbar-button {
     margin-inline-start: 0;
     text-align: end;
+  }
+}
+
+
+/* circles83: checkboxes for planned and manually added bring items */
+.bring-table-planned .bring-table-header,
+.bring-table-planned .bring-table-row {
+  grid-template-columns: minmax(170px, 1.25fr) minmax(155px, 1fr) 116px minmax(180px, 1.2fr);
+}
+
+.bring-table-free .bring-table-header,
+.bring-table-free .bring-table-row {
+  grid-template-columns: minmax(180px, 1.35fr) minmax(170px, 1fr) 116px;
+}
+
+.bring-table-check,
+.bring-table-notes {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+}
+
+.bring-table-check {
+  place-items: start center;
+}
+
+.bring-checkbox-control {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.bring-checkbox-control input {
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  margin: 0;
+  accent-color: #111827;
+  cursor: pointer;
+}
+
+.bring-checkbox-control input:disabled {
+  cursor: default;
+}
+
+.bring-table-notes input {
+  min-height: 42px;
+  padding: 8px 9px;
+}
+
+.bring-note-readonly {
+  color: #334155;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+
+
+.bring-need-add-row,
+.free-bring-add-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (max-width: 760px) {
+  .bring-table-planned .bring-table-header,
+  .bring-table-planned .bring-table-row {
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr) 62px minmax(0, 1.12fr);
+  }
+
+  .bring-table-free .bring-table-header,
+  .bring-table-free .bring-table-row {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 62px;
+  }
+
+  .bring-table-check,
+  .bring-table-notes {
+    gap: 4px;
+    font-size: 0.72rem;
+  }
+
+  .bring-checkbox-control,
+  .bring-table-subrow {
+    min-height: 36px;
+  }
+
+  .bring-checkbox-control input {
+    width: 21px;
+    height: 21px;
+  }
+
+  .bring-table-notes input {
+    min-height: 36px;
+    padding: 5px 4px;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 390px) {
+  .bring-table-planned .bring-table-header,
+  .bring-table-planned .bring-table-row {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.86fr) 56px minmax(0, 1.08fr);
+  }
+
+  .bring-table-planned .bring-table-header {
+    font-size: 0.69rem;
+  }
+
+  .bring-table-planned .bring-table-header > span,
+  .bring-table-planned .bring-table-row > * {
+    padding-inline: 3px;
+  }
+}
+
+
+/* circles84: mobile bring form flow and alignment */
+@media (max-width: 760px) {
+  .free-bring-add-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .free-bring-add-row label > span {
+    white-space: nowrap;
+    font-size: 0.88rem;
+  }
+
+  .free-bring-add-row .free-bring-add-button {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .bring-table-people {
+    text-align: start;
+  }
+
+  .bring-table-people .bring-table-subrow,
+  .bring-table-people .bring-person-line {
+    justify-content: flex-start;
+    text-align: start;
   }
 }
