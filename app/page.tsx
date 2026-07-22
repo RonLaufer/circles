@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.4.8";
+const APP_VERSION = "v1.0.5.5";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -27,9 +27,15 @@ const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
 const MAX_GALLERY_IMAGES = 20;
 const MAX_GALLERY_VIDEO_BYTES = 20 * 1024 * 1024;
+const MAX_COMMUNITY_VIDEO_BYTES = 50 * 1024 * 1024;
 
 type SelectedImage = {
   blob: Blob;
+  previewUrl: string;
+};
+
+type SelectedVideo = {
+  file: File;
   previewUrl: string;
 };
 
@@ -38,6 +44,7 @@ type Community = {
   name: string;
   description: string;
   logo_url: string | null;
+  video_url: string | null;
   requires_member_approval: boolean;
   created_by: string;
   created_at: string;
@@ -203,7 +210,9 @@ type PendingMemberAction =
   | { type: "delete_event"; event: CommunityEvent }
   | { type: "cancel_event"; event: CommunityEvent; cancel: boolean }
   | { type: "delete_circle"; community: Community }
-  | { type: "delete_gallery"; photo: EventGalleryPhoto };
+  | { type: "delete_gallery"; photo: EventGalleryPhoto }
+  | { type: "delete_notification"; notification: AppNotification }
+  | { type: "delete_all_notifications" };
 
 function GoogleIcon() {
   return (
@@ -596,6 +605,7 @@ export default function Home() {
   const supabase = useMemo(() => createClient(), []);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
   const communityImageInputRef = useRef<HTMLInputElement | null>(null);
+  const communityVideoInputRef = useRef<HTMLInputElement | null>(null);
   const eventImageInputRef = useRef<HTMLInputElement | null>(null);
   const galleryImageInputRef = useRef<HTMLInputElement | null>(null);
   const galleryVideoInputRef = useRef<HTMLInputElement | null>(null);
@@ -615,6 +625,7 @@ export default function Home() {
   const [communityRequiresApproval, setCommunityRequiresApproval] = useState(true);
   const [profileImage, setProfileImage] = useState<SelectedImage | null>(null);
   const [communityImage, setCommunityImage] = useState<SelectedImage | null>(null);
+  const [communityVideo, setCommunityVideo] = useState<SelectedVideo | null>(null);
   const [lightbox, setLightbox] = useState<{ url: string; alt: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -681,6 +692,7 @@ export default function Home() {
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [cloneEventId, setCloneEventId] = useState("");
+  const [directCloneEventId, setDirectCloneEventId] = useState<string | null>(null);
   const [personalEvents, setPersonalEvents] = useState<PersonalEventRow[]>([]);
   const [personalCommitments, setPersonalCommitments] = useState<Array<EventBringContribution & { event_title: string; starts_at: string; community_id: string; community_name: string; share_token: string }>>([]);
   const [personalLoading, setPersonalLoading] = useState(false);
@@ -709,6 +721,10 @@ export default function Home() {
 
   const clearSelectedImage = useCallback((image: SelectedImage | null) => {
     if (image?.previewUrl) URL.revokeObjectURL(image.previewUrl);
+  }, []);
+
+  const clearSelectedVideo = useCallback((video: SelectedVideo | null) => {
+    if (video?.previewUrl) URL.revokeObjectURL(video.previewUrl);
   }, []);
 
   const loadCommunities = useCallback(
@@ -747,7 +763,7 @@ export default function Home() {
 
       const { data: communityRows, error: communitiesError } = await supabase
         .from("communities")
-        .select("id,name,description,logo_url,requires_member_approval,created_by,created_at,updated_at,share_token")
+        .select("id,name,description,logo_url,video_url,requires_member_approval,created_by,created_at,updated_at,share_token")
         .in("id", communityIds)
         .order("created_at", { ascending: false });
 
@@ -2124,6 +2140,10 @@ export default function Home() {
       succeeded = await deleteCommunityCircle(pendingMemberAction.community);
     } else if (pendingMemberAction.type === "delete_gallery") {
       succeeded = await deleteGalleryPhoto(pendingMemberAction.photo);
+    } else if (pendingMemberAction.type === "delete_notification") {
+      succeeded = await deleteNotification(pendingMemberAction.notification);
+    } else if (pendingMemberAction.type === "delete_all_notifications") {
+      succeeded = await deleteAllNotifications();
     } else {
       succeeded = await leaveCommunity(pendingMemberAction.community);
     }
@@ -2266,6 +2286,45 @@ export default function Home() {
     return `${data.publicUrl}?v=${Date.now()}`;
   }
 
+
+  function prepareCommunityVideo(file: File) {
+    const allowedTypes = ["video/mp4", "video/webm", "video/quicktime"];
+
+    if (!allowedTypes.includes(file.type)) {
+      setMessageTone("error");
+      setMessage("אפשר לצרף סרטון מסוג MP4, MOV או WebM.");
+      return;
+    }
+
+    if (file.size > MAX_COMMUNITY_VIDEO_BYTES) {
+      setMessageTone("error");
+      setMessage("אפשר לצרף סרטון בגודל של עד 50MB.");
+      return;
+    }
+
+    setMessage(null);
+    setCommunityVideo((current) => {
+      clearSelectedVideo(current);
+      return {
+        file,
+        previewUrl: URL.createObjectURL(file),
+      };
+    });
+  }
+
+  async function uploadPublicVideo(bucket: string, path: string, file: File) {
+    const { error } = await supabase.storage.from(bucket).upload(path, file, {
+      contentType: file.type,
+      cacheControl: "3600",
+      upsert: true,
+    });
+
+    if (error) throw error;
+
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+    return `${data.publicUrl}?v=${Date.now()}`;
+  }
+
   async function saveProfile() {
     if (!user || !profile) return;
 
@@ -2339,6 +2398,10 @@ export default function Home() {
       clearSelectedImage(current);
       return null;
     });
+    setCommunityVideo((current) => {
+      clearSelectedVideo(current);
+      return null;
+    });
     setMessage(null);
     setCommunityFormOpen(true);
   }
@@ -2352,6 +2415,10 @@ export default function Home() {
       clearSelectedImage(current);
       return null;
     });
+    setCommunityVideo((current) => {
+      clearSelectedVideo(current);
+      return null;
+    });
     setMessage(null);
     setCommunityFormOpen(true);
   }
@@ -2362,6 +2429,10 @@ export default function Home() {
       setEditingCommunityId(null);
       setCommunityImage((current) => {
         clearSelectedImage(current);
+        return null;
+      });
+      setCommunityVideo((current) => {
+        clearSelectedVideo(current);
         return null;
       });
     }
@@ -2388,6 +2459,7 @@ export default function Home() {
 
     if (existingCommunity) {
       let logoUrl = existingCommunity.logo_url;
+      let videoUrl = existingCommunity.video_url;
 
       if (communityImage) {
         try {
@@ -2405,17 +2477,35 @@ export default function Home() {
         }
       }
 
+
+      if (communityVideo) {
+        try {
+          videoUrl = await uploadPublicVideo(
+            "community-videos",
+            `${existingCommunity.id}/intro`,
+            communityVideo.file,
+          );
+        } catch (error) {
+          console.error("Circle video upload failed", error);
+          setMessageTone("error");
+          setMessage("העלאת סרטון המעגל לא הצליחה. נסו שוב.");
+          setSavingCommunity(false);
+          return;
+        }
+      }
+
       const { data, error } = await supabase
         .from("communities")
         .update({
           name: cleanName,
           description: cleanDescription,
           logo_url: logoUrl,
+          video_url: videoUrl,
           requires_member_approval: communityRequiresApproval,
         })
         .eq("id", existingCommunity.id)
         .select(
-          "id,name,description,logo_url,requires_member_approval,created_by,created_at,updated_at,share_token",
+          "id,name,description,logo_url,video_url,requires_member_approval,created_by,created_at,updated_at,share_token",
         )
         .single();
 
@@ -2437,6 +2527,10 @@ export default function Home() {
       setEditingCommunityId(null);
       setCommunityImage((current) => {
         clearSelectedImage(current);
+        return null;
+      });
+      setCommunityVideo((current) => {
+        clearSelectedVideo(current);
         return null;
       });
       setMessageTone("success");
@@ -2467,7 +2561,9 @@ export default function Home() {
     }
 
     let uploadedLogoUrl: string | null = null;
+    let uploadedVideoUrl: string | null = null;
     let imageUploadFailed = false;
+    let videoUploadFailed = false;
 
     if (communityImage) {
       try {
@@ -2490,10 +2586,32 @@ export default function Home() {
       }
     }
 
+
+    if (communityVideo) {
+      try {
+        uploadedVideoUrl = await uploadPublicVideo(
+          "community-videos",
+          `${communityId}/intro`,
+          communityVideo.file,
+        );
+
+        const { error: videoUpdateError } = await supabase
+          .from("communities")
+          .update({ video_url: uploadedVideoUrl })
+          .eq("id", communityId);
+
+        if (videoUpdateError) throw videoUpdateError;
+      } catch (error) {
+        console.error("Circle video upload failed", error);
+        videoUploadFailed = true;
+        uploadedVideoUrl = null;
+      }
+    }
+
     const { data, error: readError } = await supabase
       .from("communities")
       .select(
-        "id,name,description,logo_url,requires_member_approval,created_by,created_at,updated_at,share_token",
+        "id,name,description,logo_url,video_url,requires_member_approval,created_by,created_at,updated_at,share_token",
       )
       .eq("id", communityId)
       .single();
@@ -2509,6 +2627,7 @@ export default function Home() {
           name: cleanName,
           description: cleanDescription,
           logo_url: uploadedLogoUrl,
+          video_url: uploadedVideoUrl,
           requires_member_approval: communityRequiresApproval,
           created_by: user.id,
           created_at: createdAt,
@@ -2527,10 +2646,15 @@ export default function Home() {
       clearSelectedImage(current);
       return null;
     });
-    setMessageTone(imageUploadFailed ? "error" : "success");
+    setCommunityVideo((current) => {
+      clearSelectedVideo(current);
+      return null;
+    });
+    const mediaUploadFailed = imageUploadFailed || videoUploadFailed;
+    setMessageTone(mediaUploadFailed ? "error" : "success");
     setMessage(
-      imageUploadFailed
-        ? `המעגל „${createdCommunity.name}” נוצר, אך העלאת התמונה לא הצליחה.`
+      mediaUploadFailed
+        ? `המעגל „${createdCommunity.name}” נוצר, אך העלאת חלק מהמדיה לא הצליחה.`
         : `המעגל „${createdCommunity.name}” נוצר בהצלחה.`,
     );
     setSelectedCommunityId(createdCommunity.id);
@@ -2540,6 +2664,7 @@ export default function Home() {
 
   function openCreateEvent() {
     setEditingEventId(null);
+    setDirectCloneEventId(null);
     setEventTitle("");
     setEventDateTime("");
     setEventEndDateTime("");
@@ -2605,6 +2730,12 @@ export default function Home() {
       })),
     );
     setMessage(null);
+  }
+
+  async function openDirectEventClone(event: CommunityEvent) {
+    openCreateEvent();
+    setDirectCloneEventId(event.id);
+    await applyEventClone(event.id);
   }
 
   function openEventDetails(event: CommunityEvent) {
@@ -2682,6 +2813,7 @@ export default function Home() {
     setEventFormOpen(false);
     setEditingEventId(null);
     setCloneEventId("");
+    setDirectCloneEventId(null);
     setEventBringNeedDrafts([]);
     setEventImage((current) => {
       clearSelectedImage(current);
@@ -3234,6 +3366,8 @@ export default function Home() {
       setMessage(`מחיקת המעגל נכשלה. ${formatSupabaseError(error)}`);
       return false;
     }
+    setCommunityFormOpen(false);
+    setEditingCommunityId(null);
     setSelectedCommunityId(null);
     setBrowserView({}, "replace");
     if (user) await loadCommunities(user);
@@ -3368,6 +3502,42 @@ export default function Home() {
     await loadCommunityEvents(row.community.id);
     setPendingEventOpenId(row.event.id);
     setBrowserView({ eventToken: row.event.share_token });
+  }
+
+  async function deleteNotification(notification: AppNotification) {
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("id", notification.id);
+
+    if (error) {
+      console.error("Deleting notification failed", error);
+      setMessageTone("error");
+      setMessage(`לא הצלחנו למחוק את ההתראה. ${formatSupabaseError(error)}`);
+      return false;
+    }
+
+    setNotifications((current) => current.filter((item) => item.id !== notification.id));
+    return true;
+  }
+
+  async function deleteAllNotifications() {
+    if (!user) return false;
+
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Deleting all notifications failed", error);
+      setMessageTone("error");
+      setMessage(`לא הצלחנו למחוק את ההתראות. ${formatSupabaseError(error)}`);
+      return false;
+    }
+
+    setNotifications([]);
+    return true;
   }
 
   async function openNotification(notification: AppNotification) {
@@ -3735,12 +3905,16 @@ export default function Home() {
   const editingCommunity =
     communities.find((community) => community.id === editingCommunityId) ?? null;
   const communityFormImageUrl = communityImage?.previewUrl ?? editingCommunity?.logo_url ?? null;
+  const communityFormVideoUrl = communityVideo?.previewUrl ?? editingCommunity?.video_url ?? null;
   const editingEvent = communityEvents.find((event) => event.id === editingEventId) ?? null;
   const selectedEvent = communityEvents.find((event) => event.id === selectedEventId) ?? null;
   const selectedEventDisplayImageUrl =
     selectedEvent?.image_url ?? selectedCommunity?.logo_url ?? null;
   const cloneSourceEvent = cloneEventId
     ? communityEvents.find((event) => event.id === cloneEventId) ?? null
+    : null;
+  const directCloneSourceEvent = directCloneEventId
+    ? communityEvents.find((event) => event.id === directCloneEventId) ?? null
     : null;
   const eventFormImageUrl =
     eventImage?.previewUrl ?? editingEvent?.image_url ?? cloneSourceEvent?.image_url ?? null;
@@ -3855,7 +4029,8 @@ export default function Home() {
       (communityName !== editingCommunity.name ||
         communityDescription !== editingCommunity.description ||
         communityRequiresApproval !== editingCommunity.requires_member_approval ||
-        communityImage),
+        communityImage ||
+        communityVideo),
   );
   const eventFormIsDirty = Boolean(
     editingEvent
@@ -3943,6 +4118,20 @@ export default function Home() {
           confirmLabel: "כן, למחוק",
           tone: "danger" as const,
         };
+      case "delete_notification":
+        return {
+          title: "מחיקת התראה",
+          message: `למחוק את ההתראה „${pendingMemberAction.notification.title}”?`,
+          confirmLabel: "כן, למחוק",
+          tone: "danger" as const,
+        };
+      case "delete_all_notifications":
+        return {
+          title: "מחיקת כל ההתראות",
+          message: "למחוק את כל ההתראות שלך? לא ניתן לבטל פעולה זו.",
+          confirmLabel: "כן, למחוק הכל",
+          tone: "danger" as const,
+        };
       default:
         return {
           title: "עזיבת המעגל",
@@ -3997,7 +4186,25 @@ export default function Home() {
                 <div className="notifications-panel">
                   <div className="notifications-panel-heading">
                     <strong>התראות</strong>
-                    <button type="button" onClick={() => setNotificationsOpen(false)}>×</button>
+                    <div className="notifications-panel-actions">
+                      {notifications.length > 0 && (
+                        <button
+                          type="button"
+                          className="notifications-delete-all"
+                          onClick={() => setPendingMemberAction({ type: "delete_all_notifications" })}
+                        >
+                          מחיקת הכל
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="notifications-close-button"
+                        onClick={() => setNotificationsOpen(false)}
+                        aria-label="סגירת ההתראות"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                   {notificationsLoading ? (
                     <div className="inline-loading"><span className="spinner spinner-small" />טוענים...</div>
@@ -4006,16 +4213,28 @@ export default function Home() {
                   ) : (
                     <div className="notifications-list">
                       {notifications.map((notification) => (
-                        <button
-                          type="button"
-                          className={`notification-item${notification.read_at ? " is-read" : ""}`}
-                          key={notification.id}
-                          onClick={() => void openNotification(notification)}
-                        >
-                          <strong>{notification.title}</strong>
-                          {notification.body && <span>{notification.body}</span>}
-                          <small>{formatShortDateTime(notification.created_at)}</small>
-                        </button>
+                        <div className="notification-row" key={notification.id}>
+                          <button
+                            type="button"
+                            className={`notification-item${notification.read_at ? " is-read" : ""}`}
+                            onClick={() => void openNotification(notification)}
+                          >
+                            <strong>{notification.title}</strong>
+                            {notification.body && <span>{notification.body}</span>}
+                            <small>{formatShortDateTime(notification.created_at)}</small>
+                          </button>
+                          <button
+                            type="button"
+                            className="notification-delete-button"
+                            onClick={() =>
+                              setPendingMemberAction({ type: "delete_notification", notification })
+                            }
+                            aria-label={`מחיקת ההתראה ${notification.title}`}
+                            title="מחיקת ההתראה"
+                          >
+                            מחיקה
+                          </button>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -4099,17 +4318,6 @@ export default function Home() {
                     עריכת המעגל
                   </button>
                 )}
-                {(selectedCommunity.role === "owner" || isSystemAdmin) && (
-                  <button
-                    type="button"
-                    className="danger-button compact-button"
-                    onClick={() =>
-                      setPendingMemberAction({ type: "delete_circle", community: selectedCommunity })
-                    }
-                  >
-                    מחיקת המעגל
-                  </button>
-                )}
               </div>
             </div>
 
@@ -4145,6 +4353,99 @@ export default function Home() {
                 עדיין לא נוסף תיאור למעגל.
               </p>
             )}
+
+
+            {selectedCommunity.video_url && (
+              <video
+                className="community-video-player"
+                src={selectedCommunity.video_url}
+                controls
+                preload="metadata"
+                playsInline
+              />
+            )}
+
+            <section className="circle-events-section circle-upcoming-events-section">
+              {canManageEvents && (
+                <div className="circle-create-event-row">
+                  <button type="button" className="primary-button compact-button" onClick={openCreateEvent}>
+                    יצירת אירוע חדש
+                  </button>
+                </div>
+              )}
+              <div className="circle-events-heading">
+                <h2>אירועים קרובים</h2>
+              </div>
+
+              {eventsLoading ? (
+                <div className="inline-loading events-loading">
+                  <span className="spinner spinner-small" />
+                  טוענים אירועים...
+                </div>
+              ) : upcomingEvents.length === 0 ? (
+                communityEvents.length === 0 ? (
+                  <div className="events-empty-state">
+                    <strong>עדיין אין אירועים במעגל</strong>
+                    <p>
+                      {canManageEvents
+                        ? "אפשר ליצור עכשיו את האירוע הראשון."
+                        : "כאשר מנהלי המעגל ייצרו אירוע, הוא יופיע כאן."}
+                    </p>
+                    {canManageEvents && (
+                      <button type="button" className="primary-button" onClick={openCreateEvent}>
+                        יצירת האירוע הראשון
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="no-requests">אין כרגע אירועים קרובים.</p>
+                )
+              ) : (
+                <div className="events-list events-list-upcoming">
+                  {upcomingEvents.map((event) => (
+                    <article
+                      className={`circle-event-card event-card-clickable${event.image_url ? "" : " circle-event-card-no-image"}${event.status === "cancelled" ? " event-card-cancelled" : ""}`}
+                      key={event.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openEventDetails(event)}
+                      onKeyDown={(keyEvent) => {
+                        if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                          keyEvent.preventDefault();
+                          openEventDetails(event);
+                        }
+                      }}
+                    >
+                      {event.image_url && (
+                        <button
+                          type="button"
+                          className="image-zoom-button event-card-image-button"
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            openImage(event.image_url!, `תמונת האירוע ${event.title}`);
+                          }}
+                          aria-label={`הגדלת תמונת האירוע ${event.title}`}
+                        >
+                          <img
+                            className="event-card-image"
+                            src={event.image_url}
+                            alt={`תמונת האירוע ${event.title}`}
+                          />
+                        </button>
+                      )}
+                      <div className="event-card-copy">
+                        <h4 className="event-card-title-line">{event.title} {formatEventDate(event.starts_at, event.ends_at)}</h4>
+                        {event.status === "cancelled" && <span className="event-card-cancelled-badge">מבוטל</span>}
+                        {event.location && <span className="event-location">{event.location}</span>}
+                        {event.participant_limit !== null && (
+                          <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
 
             <section className="circle-people-section">
               <div className="circle-people-heading">
@@ -4259,139 +4560,56 @@ export default function Home() {
               )}
             </section>
 
-            <section className="circle-events-section">
-              <div className="circle-events-heading">
-                <div>
-                  <h2>האירועים של המעגל</h2>
+            {pastEvents.length > 0 && (
+              <section className="circle-events-section past-events-section">
+                <div className="circle-events-heading">
+                  <h2>אירועים שהסתיימו</h2>
                 </div>
-                {canManageEvents && (
-                  <button type="button" className="primary-button compact-button" onClick={openCreateEvent}>
-                    יצירת אירוע
-                  </button>
-                )}
-              </div>
-
-              {eventsLoading ? (
-                <div className="inline-loading events-loading">
-                  <span className="spinner spinner-small" />
-                  טוענים אירועים...
-                </div>
-              ) : communityEvents.length === 0 ? (
-                <div className="events-empty-state">
-                  <strong>עדיין אין אירועים במעגל</strong>
-                  <p>
-                    {canManageEvents
-                      ? "אפשר ליצור עכשיו את האירוע הראשון."
-                      : "כאשר מנהלי המעגל ייצרו אירוע, הוא יופיע כאן."}
-                  </p>
-                  {canManageEvents && (
-                    <button type="button" className="primary-button" onClick={openCreateEvent}>
-                      יצירת האירוע הראשון
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="events-groups">
-                  {upcomingEvents.length > 0 && (
-                    <div className="events-group">
-                      <h3>אירועים קרובים</h3>
-                      <div className="events-list">
-                        {upcomingEvents.map((event) => (
-                          <article
-                            className={`circle-event-card event-card-clickable${event.image_url ? "" : " circle-event-card-no-image"}${event.status === "cancelled" ? " event-card-cancelled" : ""}`}
-                            key={event.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openEventDetails(event)}
-                            onKeyDown={(keyEvent) => {
-                              if (keyEvent.key === "Enter" || keyEvent.key === " ") {
-                                keyEvent.preventDefault();
-                                openEventDetails(event);
-                              }
-                            }}
-                          >
-                            {event.image_url && (
-                              <button
-                                type="button"
-                                className="image-zoom-button event-card-image-button"
-                                onClick={(clickEvent) => {
-                                  clickEvent.stopPropagation();
-                                  openImage(event.image_url!, `תמונת האירוע ${event.title}`);
-                                }}
-                                aria-label={`הגדלת תמונת האירוע ${event.title}`}
-                              >
-                                <img
-                                  className="event-card-image"
-                                  src={event.image_url}
-                                  alt={`תמונת האירוע ${event.title}`}
-                                />
-                              </button>
-                            )}
-                            <div className="event-card-copy">
-                              <h4 className="event-card-title-line">{event.title} {formatEventDate(event.starts_at, event.ends_at)}</h4>
-                              {event.status === "cancelled" && <span className="event-card-cancelled-badge">מבוטל</span>}
-                              {event.location && <span className="event-location">{event.location}</span>}
-                              {event.participant_limit !== null && (
-                                <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
-                              )}
-                            </div>
-                          </article>
-                        ))}
+                <div className="events-list">
+                  {pastEvents.map((event) => (
+                    <article
+                      className={`circle-event-card event-card-clickable past-event-card${event.image_url ? "" : " circle-event-card-no-image"}${event.status === "cancelled" ? " event-card-cancelled" : ""}`}
+                      key={event.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openEventDetails(event)}
+                      onKeyDown={(keyEvent) => {
+                        if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                          keyEvent.preventDefault();
+                          openEventDetails(event);
+                        }
+                      }}
+                    >
+                      {event.image_url && (
+                        <button
+                          type="button"
+                          className="image-zoom-button event-card-image-button"
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            openImage(event.image_url!, `תמונת האירוע ${event.title}`);
+                          }}
+                          aria-label={`הגדלת תמונת האירוע ${event.title}`}
+                        >
+                          <img
+                            className="event-card-image"
+                            src={event.image_url}
+                            alt={`תמונת האירוע ${event.title}`}
+                          />
+                        </button>
+                      )}
+                      <div className="event-card-copy">
+                        <h4 className="event-card-title-line">{event.title} {formatEventDate(event.starts_at, event.ends_at)}</h4>
+                        {event.status === "cancelled" && <span className="event-card-cancelled-badge">מבוטל</span>}
+                        {event.location && <span className="event-location">{event.location}</span>}
+                        {event.participant_limit !== null && (
+                          <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
+                        )}
                       </div>
-                    </div>
-                  )}
-
-                  {pastEvents.length > 0 && (
-                    <div className="events-group past-events-group">
-                      <h3>אירועים שהסתיימו</h3>
-                      <div className="events-list">
-                        {pastEvents.map((event) => (
-                          <article
-                            className={`circle-event-card event-card-clickable past-event-card${event.image_url ? "" : " circle-event-card-no-image"}${event.status === "cancelled" ? " event-card-cancelled" : ""}`}
-                            key={event.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openEventDetails(event)}
-                            onKeyDown={(keyEvent) => {
-                              if (keyEvent.key === "Enter" || keyEvent.key === " ") {
-                                keyEvent.preventDefault();
-                                openEventDetails(event);
-                              }
-                            }}
-                          >
-                            {event.image_url && (
-                              <button
-                                type="button"
-                                className="image-zoom-button event-card-image-button"
-                                onClick={(clickEvent) => {
-                                  clickEvent.stopPropagation();
-                                  openImage(event.image_url!, `תמונת האירוע ${event.title}`);
-                                }}
-                                aria-label={`הגדלת תמונת האירוע ${event.title}`}
-                              >
-                                <img
-                                  className="event-card-image"
-                                  src={event.image_url}
-                                  alt={`תמונת האירוע ${event.title}`}
-                                />
-                              </button>
-                            )}
-                            <div className="event-card-copy">
-                              <h4 className="event-card-title-line">{event.title} {formatEventDate(event.starts_at, event.ends_at)}</h4>
-                              {event.status === "cancelled" && <span className="event-card-cancelled-badge">מבוטל</span>}
-                              {event.location && <span className="event-location">{event.location}</span>}
-                              {event.participant_limit !== null && (
-                                <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
-                              )}
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                    </article>
+                  ))}
                 </div>
-              )}
-            </section>
+              </section>
+            )}
 
             {message && <p className={`message-box ${messageTone}`}>{message}</p>}
           </section>
@@ -5204,6 +5422,39 @@ export default function Home() {
                 )}
               </div>
 
+              <div className="video-upload-field">
+                <span className="field-label">סרטון המעגל</span>
+                <input
+                  ref={communityVideoInputRef}
+                  className="hidden-file-input"
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) prepareCommunityVideo(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="primary-button upload-image-button"
+                  onClick={() => communityVideoInputRef.current?.click()}
+                >
+                  {communityFormVideoUrl ? "החלפת סרטון" : "צירוף סרטון"}
+                </button>
+                <small>סרטון אחד מסוג MP4, MOV או WebM, עד 50MB.</small>
+
+                {communityFormVideoUrl && (
+                  <video
+                    className="selected-community-video"
+                    src={communityFormVideoUrl}
+                    controls
+                    preload="metadata"
+                    playsInline
+                  />
+                )}
+              </div>
+
               <label>
                 <span>שם המעגל</span>
                 <input
@@ -5273,6 +5524,21 @@ export default function Home() {
               </button>
             </div>
 
+            {editingCommunity && (editingCommunity.role === "owner" || isSystemAdmin) && (
+              <div className="editor-danger-zone">
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() =>
+                    setPendingMemberAction({ type: "delete_circle", community: editingCommunity })
+                  }
+                  disabled={savingCommunity}
+                >
+                  מחיקת המעגל
+                </button>
+              </div>
+            )}
+
             {message && <p className={`message-box ${messageTone}`}>{message}</p>}
           </section>
         </div>
@@ -5294,13 +5560,22 @@ export default function Home() {
                   שיתוף
                 </button>
                 {canManageEvents && (
-                  <button
-                    type="button"
-                    className="primary-button compact-button"
-                    onClick={() => openEditEvent(selectedEvent)}
-                  >
-                    עריכת האירוע
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="secondary-button compact-button"
+                      onClick={() => void openDirectEventClone(selectedEvent)}
+                    >
+                      שכפול האירוע
+                    </button>
+                    <button
+                      type="button"
+                      className="primary-button compact-button"
+                      onClick={() => openEditEvent(selectedEvent)}
+                    >
+                      עריכת האירוע
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -5363,6 +5638,17 @@ export default function Home() {
               <RichText
                 text={selectedEvent.description}
                 className={`event-detail-description${selectedEventIsCancelled ? " event-cancelled-description" : ""}`}
+              />
+            )}
+
+
+            {selectedCommunity.video_url && (
+              <video
+                className="community-video-player event-community-video-player"
+                src={selectedCommunity.video_url}
+                controls
+                preload="metadata"
+                playsInline
               />
             )}
 
@@ -5522,7 +5808,6 @@ export default function Home() {
             {ownEventAttendance?.status === "going" && (
               <section className="event-bring-section">
                 <div className="section-heading-compact">
-                  <p className="section-kicker">מתארגנים יחד</p>
                   <h2>מה כל אחד מביא?</h2>
                 </div>
 
@@ -5865,8 +6150,9 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
-                      className="secondary-button compact-button"
+                      className="secondary-button compact-button gallery-video-button"
                       disabled={galleryBusy || galleryVideoCount >= 1}
+                      title={galleryVideoCount >= 1 ? "כבר קיים סרטון אחד בגלריה" : "הוספת סרטון"}
                       onClick={() => galleryVideoInputRef.current?.click()}
                     >
                       הוספת סרטון
@@ -5943,23 +6229,29 @@ export default function Home() {
             </h2>
 
             <div className="profile-form modal-form">
-              {!editingEvent && cloneableWholeEvents.length > 0 && (
+              {!editingEvent && directCloneSourceEvent ? (
+                <div className="direct-clone-notice">
+                  האירוע יועתק מהאירוע <strong>{directCloneSourceEvent.title}</strong> שהתקיים ב {formatShortDate(directCloneSourceEvent.starts_at)}
+                </div>
+              ) : !editingEvent && cloneableWholeEvents.length > 0 ? (
                 <label className="clone-event-field">
-                  <select
-                    aria-label="שכפול מאירוע קיים"
-                    value={cloneEventId}
-                    onChange={(event) => void applyEventClone(event.target.value)}
-                  >
-                    <option value="">אירוע חדש ללא שכפול</option>
-                    {cloneableWholeEvents.map((event) => (
-                      <option value={event.id} key={event.id}>
-                        {event.title} · {formatShortDate(event.starts_at)}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="clone-event-select-shell">
+                    <select
+                      aria-label="שכפול מאירוע קיים"
+                      value={cloneEventId}
+                      onChange={(event) => void applyEventClone(event.target.value)}
+                    >
+                      <option value="">אירוע חדש ללא שכפול</option>
+                      {cloneableWholeEvents.map((event) => (
+                        <option value={event.id} key={event.id}>
+                          {event.title} · {formatShortDate(event.starts_at)}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
                   <small>השכפול כולל את פרטי האירוע ואת טבלת האוכל שהוגדרה מראש בלבד.</small>
                 </label>
-              )}
+              ) : null}
 
               <div className="image-upload-field event-image-upload-field">
                 <input

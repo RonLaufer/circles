@@ -32,11 +32,21 @@ export function RichText({ text, className = "" }: { text: string; className?: s
 
   return (
     <div className={`rich-text ${className}`.trim()}>
-      {lines.map((line, lineIndex) => (
-        <span className="rich-text-line" key={`${lineIndex}-${line}`}>
-          {line ? linkifyLine(line, lineIndex) : "\u00a0"}
-        </span>
-      ))}
+      {lines.map((line, lineIndex) => {
+        const containsUrl = /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(line);
+        const containsHebrew = /[\u0590-\u05FF]/.test(line);
+        const alignLinkLeft = containsUrl && !containsHebrew;
+
+        return (
+          <span
+            className={`rich-text-line${alignLinkLeft ? " rich-text-line-left-link" : ""}`}
+            dir={alignLinkLeft ? "ltr" : undefined}
+            key={`${lineIndex}-${line}`}
+          >
+            {line ? linkifyLine(line, lineIndex) : "\u00a0"}
+          </span>
+        );
+      })}
     </div>
   );
 }

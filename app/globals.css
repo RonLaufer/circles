@@ -4255,3 +4255,287 @@ html.is-localhost {
     width: 100%;
   }
 }
+
+/* circles49: unified badge typography */
+[class*="badge"],
+[class*="pill"],
+[class*="chip"] {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif !important;
+  font-style: normal !important;
+  font-variant: normal !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}
+
+.gallery-video-button:disabled {
+  cursor: default !important;
+}
+
+.notifications-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notifications-delete-all,
+.notifications-close-button,
+.notification-delete-button {
+  font-family: inherit;
+}
+
+.notifications-delete-all {
+  border: 0;
+  background: transparent;
+  color: #b91c1c;
+  padding: 5px 7px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notifications-close-button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--soft);
+  color: #475569;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.notification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.notification-delete-button {
+  align-self: stretch;
+  border: 0;
+  border-radius: 12px;
+  background: #fff1f2;
+  color: #991b1b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notification-delete-button:hover {
+  background: #ffe4e6;
+}
+
+
+/* circles50: upcoming events above members; past events below */
+.circle-upcoming-events-section {
+  margin-top: 28px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.circle-people-section {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.past-events-section {
+  margin-top: 30px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* circles51: circle video and clearer SPA navigation */
+.back-button {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.video-upload-field {
+  display: grid;
+  gap: 9px;
+}
+
+.video-upload-field small {
+  color: #94a3b8;
+  font-size: 0.74rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.selected-community-video,
+.community-video-player {
+  width: 100%;
+  max-height: 520px;
+  display: block;
+  margin-top: 18px;
+  border-radius: 18px;
+  background: #000;
+  object-fit: contain;
+}
+
+.selected-community-video {
+  max-height: 360px;
+  margin-top: 4px;
+}
+
+.event-community-video-player {
+  margin-top: 18px;
+}
+
+@media (max-width: 680px) {
+  .selected-community-video,
+  .community-video-player {
+    max-height: 360px;
+    border-radius: 14px;
+  }
+}
+
+/* circles52: circle deletion in editor, event action placement and modern clone control */
+.circle-create-event-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 18px;
+}
+
+.editor-danger-zone {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 26px;
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+}
+
+.clone-event-field {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 10px;
+}
+
+.clone-event-select-shell {
+  position: relative;
+  display: block;
+  width: 100%;
+  border-radius: 22px;
+  box-shadow: 0 0 0 6px rgba(252, 211, 77, 0.28);
+}
+
+.clone-event-select-shell::after {
+  content: "⌄";
+  position: absolute;
+  top: 50%;
+  left: 17px;
+  transform: translateY(-54%);
+  color: #111111;
+  font-family: inherit;
+  font-size: 1.2rem;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.clone-event-field .clone-event-select-shell select {
+  width: 100%;
+  min-height: 58px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid #f4c23a;
+  border-radius: 22px;
+  background: #ffffff;
+  color: #111111;
+  padding: 12px 18px 12px 52px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.35;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.clone-event-field .clone-event-select-shell select:focus {
+  border-color: #e5ab12;
+  outline: 3px solid rgba(252, 211, 77, 0.34);
+  outline-offset: 1px;
+}
+
+.clone-event-field .clone-event-select-shell select option {
+  font-family: inherit;
+  color: #111111;
+  background: #ffffff;
+}
+
+@media (max-width: 680px) {
+  .circle-create-event-row .primary-button {
+    width: auto;
+  }
+
+  .clone-event-field {
+    width: 100%;
+  }
+
+  .clone-event-field .clone-event-select-shell select {
+    min-height: 54px;
+    font-size: 0.96rem;
+  }
+}
+
+
+/* circles53: mobile navigation alignment, seamless event video and link styling */
+.rich-text a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.rich-text a:hover,
+.rich-text a:focus-visible {
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.event-community-video-player + .event-managers-section {
+  border-top: 0;
+  padding-top: 0;
+}
+
+@media (max-width: 760px) {
+  .back-button {
+    width: auto !important;
+    align-self: flex-start !important;
+    text-align: right;
+  }
+}
+
+
+/* circles54: direct event clone flow */
+.direct-clone-notice {
+  width: min(100%, 720px);
+  border: 1px solid #f4c23a;
+  border-radius: 16px;
+  background: #fff8d8;
+  color: #111111;
+  padding: 14px 16px;
+  font-family: inherit;
+  font-size: 0.96rem;
+  line-height: 1.55;
+}
+
+.direct-clone-notice strong {
+  font-family: inherit;
+}
+
+
+/* circles55: mobile spacing below navigation links and left-aligned standalone URLs */
+.rich-text-line-left-link {
+  direction: ltr;
+  text-align: left;
+}
+
+@media (max-width: 760px) {
+  .back-button {
+    margin-bottom: 14px;
+  }
+}
