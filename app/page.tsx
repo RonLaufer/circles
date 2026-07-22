@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.4.1";
+const APP_VERSION = "v1.0.4.2";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -3198,6 +3198,8 @@ export default function Home() {
   const communityFormImageUrl = communityImage?.previewUrl ?? editingCommunity?.logo_url ?? null;
   const editingEvent = communityEvents.find((event) => event.id === editingEventId) ?? null;
   const selectedEvent = communityEvents.find((event) => event.id === selectedEventId) ?? null;
+  const selectedEventDisplayImageUrl =
+    selectedEvent?.image_url ?? selectedCommunity?.logo_url ?? null;
   const eventFormImageUrl = eventImage?.previewUrl ?? editingEvent?.image_url ?? null;
   const ownEventAttendance = eventAttendance.find((attendance) => attendance.user_id === user.id) ?? null;
   const goingAttendance = eventAttendance.filter((attendance) => attendance.status === "going");
@@ -4623,16 +4625,27 @@ export default function Home() {
               </div>
             </div>
 
-            {selectedEvent.image_url && (
+            {selectedEventDisplayImageUrl && (
               <button
                 type="button"
                 className="image-zoom-button event-detail-image-button"
-                onClick={() => openImage(selectedEvent.image_url!, `תמונת האירוע ${selectedEvent.title}`)}
+                onClick={() =>
+                  openImage(
+                    selectedEventDisplayImageUrl,
+                    selectedEvent.image_url
+                      ? `תמונת האירוע ${selectedEvent.title}`
+                      : `תמונת המעגל ${selectedCommunity.name}`,
+                  )
+                }
               >
                 <img
                   className="event-detail-image"
-                  src={selectedEvent.image_url}
-                  alt={`תמונת האירוע ${selectedEvent.title}`}
+                  src={selectedEventDisplayImageUrl}
+                  alt={
+                    selectedEvent.image_url
+                      ? `תמונת האירוע ${selectedEvent.title}`
+                      : `תמונת המעגל ${selectedCommunity.name}`
+                  }
                 />
               </button>
             )}
