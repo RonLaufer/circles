@@ -15,13 +15,17 @@ type Profile = {
   phone: string;
   avatar_url: string | null;
   google_avatar_url: string | null;
+  legal_accepted_at: string | null;
+  legal_version: string | null;
 };
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.7.3";
+const APP_VERSION = "v1.0.7.5";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
+const LEGAL_VERSION = "2026-07-22";
+const PENDING_LEGAL_ACCEPTANCE_KEY = `circles-legal-acceptance-${LEGAL_VERSION}`;
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
@@ -268,6 +272,173 @@ function ProfileMenuIcon() {
       <circle cx="12" cy="8" r="4" fill="currentColor" />
       <path d="M4.5 21a7.5 7.5 0 0 1 15 0Z" fill="currentColor" />
     </svg>
+  );
+}
+
+function LegalScreen({
+  checked,
+  onCheckedChange,
+  onAccept,
+  onBack,
+  saving,
+  acceptanceRequired,
+  acceptButtonLabel,
+  acceptedAt,
+  message,
+  messageTone,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  onAccept: () => void;
+  onBack?: () => void;
+  saving: boolean;
+  acceptanceRequired: boolean;
+  acceptButtonLabel: string;
+  acceptedAt?: string | null;
+  message: string | null;
+  messageTone: "success" | "error";
+}) {
+  return (
+    <main className="legal-page">
+      <section className="legal-card" aria-live="polite">
+        <div className="legal-toolbar">
+          {onBack ? (
+            <button type="button" className="back-button" onClick={onBack}>
+              חזרה
+            </button>
+          ) : (
+            <span />
+          )}
+          <span className="legal-version">גרסת מסמך {LEGAL_VERSION}</span>
+        </div>
+
+        <header className="legal-header">
+          <CirclesMark />
+          <div>
+            <p className="section-kicker">מעגלים · Circles</p>
+            <h1>תנאי שימוש ומדיניות פרטיות</h1>
+          </div>
+        </header>
+
+        <div className="legal-document">
+          <section className="legal-intro">
+            <h2>מה הרעיון של המערכת?</h2>
+            <p>
+              „מעגלים” היא מערכת קהילתית שנועדה לעזור לקבוצות של אנשים להתארגן,
+              להישאר בקשר וליצור פעילות משותפת במקום אחד. במערכת אפשר להקים מעגלים,
+              להזמין חברים, לפרסם אירועים, לנהל הרשמה והגעה, לתאם מה כל אחד מביא
+              ולשתף תמונות וסרטונים מהפעילות.
+            </p>
+            <p>
+              המערכת מיועדת לשימוש קהילתי מכבד. כל משתמש אחראי למידע ולתוכן שהוא
+              מפרסם ולכך שיש לו רשות לשתף אותו עם חברי המעגל הרלוונטי.
+            </p>
+          </section>
+
+          <section>
+            <h2>תנאי שימוש</h2>
+            <ol>
+              <li>יש להשתמש במערכת באופן חוקי, מכבד ולמטרות הקשורות לפעילות המעגל.</li>
+              <li>אין לפרסם תוכן פוגעני, מטעה, מפר זכויות, בלתי חוקי או תוכן של אדם אחר ללא רשות.</li>
+              <li>מנהלי מעגל רשאים לנהל חברות במעגל, אירועים ותכנים בהתאם לצורכי הקהילה.</li>
+              <li>המשתמש אחראי לנכונות הפרטים שמסר ולשמירה על הגישה לחשבון Google שלו.</li>
+              <li>המערכת עשויה להשתנות, להתעדכן או להיות מושבתת זמנית לצורכי תחזוקה.</li>
+              <li>מפעיל המערכת רשאי להסיר תוכן או להגביל שימוש במקרה של הפרת תנאים אלה.</li>
+            </ol>
+          </section>
+
+          <section>
+            <h2>איזה מידע נשמר?</h2>
+            <p>
+              בעת כניסה באמצעות Google מתקבלים מזהה משתמש, כתובת דוא״ל, שם ותמונת
+              פרופיל, ככל ש־Google מספקת אותם. בנוסף, המשתמש יכול להוסיף מרצונו עיר,
+              מספר טלפון, תיאור אישי ותמונת פרופיל אחרת.
+            </p>
+            <p>
+              במהלך השימוש נשמר מידע הקשור למעגלים, חברות במעגל, אירועים, תגובות
+              הגעה, שמות אורחים, פריטים שהמשתמש התחייב להביא, הודעות, תמונות וסרטונים
+              שהועלו למערכת.
+            </p>
+          </section>
+
+          <section>
+            <h2>כיצד משתמשים במידע?</h2>
+            <ul>
+              <li>כדי לאפשר כניסה, זיהוי משתמש ותפעול המערכת.</li>
+              <li>כדי להציג לחברי המעגל את המידע הדרוש לפעילות המשותפת.</li>
+              <li>כדי לשלוח ולהציג עדכונים והתראות בתוך המערכת.</li>
+              <li>כדי לאבטח את השירות, לטפל בתקלות ולשפר את פעולתו.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>מי יכול לראות את המידע?</h2>
+            <p>
+              מידע קהילתי מוצג בהתאם להרשאות במערכת. פרטי פרופיל עשויים להיות גלויים
+              לחברים המשתייכים לאותו מעגל. מידע על אירוע משותף עשוי להיות מוצג למי
+              שקיבל קישור לאירוע או למעגל, בהתאם להגדרות ולתהליך ההצטרפות.
+            </p>
+            <p>
+              אין מכירה של מידע אישי למפרסמים. מידע עשוי להישמר או להיות מעובד אצל
+              ספקי התשתית הנדרשים להפעלת המערכת, ובהם Google לצורך התחברות, Supabase
+              לצורך מסד נתונים ואחסון, ו־Vercel לצורך אירוח המערכת.
+            </p>
+          </section>
+
+          <section>
+            <h2>שמירה, אבטחה ומחיקה</h2>
+            <p>
+              נעשים מאמצים סבירים להגן על המידע באמצעות הרשאות גישה ותשתיות מאובטחות,
+              אך אין מערכת מקוונת החסינה לחלוטין. מידע נשמר כל עוד הוא נדרש להפעלת
+              השירות, לעמידה בחובות חוקיות או לטיפול במחלוקות ובתקלות.
+            </p>
+            <p>
+              ניתן לבקש לעיין במידע אישי, לתקנו או למחוק אותו. מחיקת מידע מסוים עלולה
+              להשפיע על היכולת להשתמש במערכת או על תיעוד פעילות שכבר שותפה במעגל.
+            </p>
+          </section>
+
+          <section>
+            <h2>שינויים ויצירת קשר</h2>
+            <p>
+              תנאים ומדיניות אלה עשויים להתעדכן. כאשר יהיה שינוי מהותי, המערכת עשויה
+              לבקש אישור מחדש. לפניות בנושא פרטיות, תנאי שימוש או מחיקת מידע ניתן
+              לפנות למנהל המערכת בדוא״ל: <a href={`mailto:${SYSTEM_ADMIN_EMAIL}`}>{SYSTEM_ADMIN_EMAIL}</a>.
+            </p>
+          </section>
+        </div>
+
+        {acceptanceRequired ? (
+          <div className="legal-consent-panel">
+            <label className="legal-consent-checkbox">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => onCheckedChange(event.target.checked)}
+              />
+              <span>
+                קראתי את תנאי השימוש ומדיניות הפרטיות, הבנתי אותם ואני מאשר/ת אותם.
+              </span>
+            </label>
+            <button
+              type="button"
+              className="primary-button legal-accept-button"
+              onClick={onAccept}
+              disabled={!checked || saving}
+            >
+              {saving ? "שומרים את האישור..." : acceptButtonLabel}
+            </button>
+          </div>
+        ) : (
+          <div className="legal-accepted-panel">
+            <strong>האישור שלך שמור במערכת.</strong>
+            {acceptedAt && <span>תאריך אישור: {formatJoinDateTime(acceptedAt)}</span>}
+          </div>
+        )}
+
+        {message && <p className={`message-box ${messageTone}`}>{message}</p>}
+      </section>
+    </main>
   );
 }
 
@@ -569,7 +740,7 @@ function formatEventDate(startsAt: string, endsAt?: string | null) {
 
 function getEventDisplayTitle(event: Pick<CommunityEvent, "title" | "starts_at" | "ends_at">) {
   const dateAndTime = formatEventDate(event.starts_at, event.ends_at);
-  return dateAndTime ? `${event.title} · ${dateAndTime}` : event.title;
+  return dateAndTime ? `${event.title} ${dateAndTime}` : event.title;
 }
 
 function getEventBrowserTitle(event: Pick<CommunityEvent, "title" | "starts_at">) {
@@ -632,6 +803,9 @@ export default function Home() {
   const [communitiesLoading, setCommunitiesLoading] = useState(false);
   const [communitiesReady, setCommunitiesReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
+  const [legalScreenOpen, setLegalScreenOpen] = useState(false);
+  const [legalConsentChecked, setLegalConsentChecked] = useState(false);
+  const [legalConsentSaving, setLegalConsentSaving] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingCommunity, setSavingCommunity] = useState(false);
   const [communityMembers, setCommunityMembers] = useState<CommunityMember[]>([]);
@@ -1295,7 +1469,7 @@ export default function Home() {
       const googleProfile = getGoogleProfile(currentUser);
       const { data, error } = await supabase
         .from("profiles")
-        .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url")
+        .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
         .eq("id", currentUser.id)
         .maybeSingle<Profile>();
 
@@ -1304,7 +1478,9 @@ export default function Home() {
         setMessage(
           error.code === "42P01"
             ? "יש להריץ תחילה את קובץ ה־SQL של circles3 ב־Supabase."
-            : "לא הצלחנו לטעון את הפרופיל. נסו לרענן את הדף.",
+            : error.code === "42703"
+              ? "יש להריץ את קובץ ה־SQL של circles74 ב־Supabase."
+              : "לא הצלחנו לטעון את הפרופיל. נסו לרענן את הדף.",
         );
         setProfileLoading(false);
         return;
@@ -1321,7 +1497,7 @@ export default function Home() {
             full_name: googleProfile.fullName,
             google_avatar_url: googleProfile.avatarUrl,
           })
-          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url")
+          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
           .single<Profile>();
 
         if (insertError) {
@@ -1343,10 +1519,38 @@ export default function Home() {
             google_avatar_url: googleProfile.avatarUrl,
           })
           .eq("id", currentUser.id)
-          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url")
+          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
           .single<Profile>();
 
         loadedProfile = refreshedProfile ?? loadedProfile;
+      }
+
+      const pendingLegalAcceptance =
+        window.sessionStorage.getItem(PENDING_LEGAL_ACCEPTANCE_KEY) === "1";
+      const hasCurrentLegalAcceptance = Boolean(
+        loadedProfile.legal_accepted_at && loadedProfile.legal_version === LEGAL_VERSION,
+      );
+
+      if (pendingLegalAcceptance && !hasCurrentLegalAcceptance) {
+        const acceptedAt = new Date().toISOString();
+        const { data: acceptedProfile, error: acceptanceError } = await supabase
+          .from("profiles")
+          .update({
+            legal_accepted_at: acceptedAt,
+            legal_version: LEGAL_VERSION,
+          })
+          .eq("id", currentUser.id)
+          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+          .single<Profile>();
+
+        if (acceptanceError) {
+          console.error("Saving legal acceptance after Google sign-in failed", acceptanceError);
+          setMessageTone("error");
+          setMessage("לא הצלחנו לשמור את אישור תנאי השימוש. נסו שוב.");
+        } else {
+          loadedProfile = acceptedProfile;
+          window.sessionStorage.removeItem(PENDING_LEGAL_ACCEPTANCE_KEY);
+        }
       }
 
       setProfile(loadedProfile);
@@ -1826,7 +2030,20 @@ export default function Home() {
     setPendingEventOpenId(null);
   }, [communityEvents, pendingEventOpenId]);
 
+  function updateLegalConsentChecked(checked: boolean) {
+    setLegalConsentChecked(checked);
+    if (!checked) window.sessionStorage.removeItem(PENDING_LEGAL_ACCEPTANCE_KEY);
+  }
+
   async function signInWithGoogle() {
+    if (!legalConsentChecked) {
+      setMessageTone("error");
+      setMessage("יש לאשר תחילה את תנאי השימוש ומדיניות הפרטיות.");
+      setLegalScreenOpen(true);
+      return;
+    }
+
+    window.sessionStorage.setItem(PENDING_LEGAL_ACCEPTANCE_KEY, "1");
     setAuthBusy(true);
     setMessage(null);
 
@@ -1840,6 +2057,9 @@ export default function Home() {
       provider: "google",
       options: {
         redirectTo,
+        queryParams: {
+          prompt: "select_account",
+        },
       },
     });
 
@@ -2400,7 +2620,7 @@ export default function Home() {
         avatar_url: avatarUrl,
       })
       .eq("id", user.id)
-      .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url")
+      .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
       .single<Profile>();
 
     if (error) {
@@ -3817,7 +4037,53 @@ export default function Home() {
     );
   }
 
-  if (loading) {
+  async function acceptLegalConsent() {
+    if (!legalConsentChecked) return;
+
+    if (!user) {
+      window.sessionStorage.setItem(PENDING_LEGAL_ACCEPTANCE_KEY, "1");
+      setMessage(null);
+      setLegalScreenOpen(false);
+      return;
+    }
+
+    setLegalConsentSaving(true);
+    setMessage(null);
+    const acceptedAt = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("profiles")
+      .update({
+        legal_accepted_at: acceptedAt,
+        legal_version: LEGAL_VERSION,
+      })
+      .eq("id", user.id)
+      .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+      .single<Profile>();
+
+    if (error) {
+      console.error("Saving legal acceptance failed", error);
+      setMessageTone("error");
+      setMessage(
+        error.code === "42703"
+          ? "יש להריץ את קובץ ה־SQL של circles74 ב־Supabase."
+          : "לא הצלחנו לשמור את האישור. נסו שוב.",
+      );
+    } else {
+      setProfile(data);
+      window.sessionStorage.removeItem(PENDING_LEGAL_ACCEPTANCE_KEY);
+      setLegalScreenOpen(false);
+      setMessageTone("success");
+      setMessage("האישור נשמר.");
+    }
+
+    setLegalConsentSaving(false);
+  }
+
+  const legalConsentAccepted = Boolean(
+    profile?.legal_accepted_at && profile.legal_version === LEGAL_VERSION,
+  );
+
+  if (loading || (user && profileLoading && !profile)) {
     return (
       <main className="centered-page">
         <div className="loading-panel">
@@ -3825,6 +4091,26 @@ export default function Home() {
           <p>טוענים את המעגל שלך...</p>
         </div>
       </main>
+    );
+  }
+
+  if (legalScreenOpen || Boolean(user && profile && !legalConsentAccepted)) {
+    const acceptanceRequired = !user || !legalConsentAccepted;
+    const canCloseLegalScreen = !user || legalConsentAccepted;
+
+    return (
+      <LegalScreen
+        checked={legalConsentChecked}
+        onCheckedChange={updateLegalConsentChecked}
+        onAccept={acceptLegalConsent}
+        onBack={canCloseLegalScreen ? () => setLegalScreenOpen(false) : undefined}
+        saving={legalConsentSaving}
+        acceptanceRequired={acceptanceRequired}
+        acceptButtonLabel={user ? "אישור והמשך" : "אישור וחזרה לכניסה"}
+        acceptedAt={profile?.legal_accepted_at}
+        message={message}
+        messageTone={messageTone}
+      />
     );
   }
 
@@ -3911,11 +4197,31 @@ export default function Home() {
             </div>
           )}
 
+          <div className="login-consent-row">
+            <input
+              id="login-legal-consent"
+              type="checkbox"
+              checked={legalConsentChecked}
+              onChange={(event) => updateLegalConsentChecked(event.target.checked)}
+            />
+            <label htmlFor="login-legal-consent">קראתי ואני מאשר/ת את</label>
+            <button
+              type="button"
+              className="inline-link-button"
+              onClick={() => {
+                setMessage(null);
+                setLegalScreenOpen(true);
+              }}
+            >
+              תנאי השימוש ומדיניות הפרטיות
+            </button>
+          </div>
+
           <button
             type="button"
             className="primary-button google-button"
             onClick={signInWithGoogle}
-            disabled={authBusy}
+            disabled={authBusy || !legalConsentChecked}
           >
             {authBusy ? <span className="spinner spinner-small" /> : <GoogleIcon />}
             <span>{authBusy ? "פותחים את Google..." : "כניסה באמצעות Google"}</span>
@@ -4752,6 +5058,16 @@ export default function Home() {
                 >
                   חזרה למסך הראשי
                 </button>
+                <button
+                  type="button"
+                  className="back-button legal-toolbar-button"
+                  onClick={() => {
+                    setMessage(null);
+                    setLegalScreenOpen(true);
+                  }}
+                >
+                  תנאי שימוש ופרטיות
+                </button>
               </div>
               <div className="section-heading">
                 <div>
@@ -4944,7 +5260,7 @@ export default function Home() {
                                 }}
                               >
                                 <strong>{commitment.item_name} · {commitment.quantity}</strong>
-                                <span>{commitment.event_title} · {formatShortDate(commitment.starts_at)}</span>
+                                <span>{commitment.event_title} {formatShortDate(commitment.starts_at)}</span>
                                 {commitment.note && <small>{commitment.note}</small>}
                               </button>
                             ))}
@@ -6260,7 +6576,7 @@ export default function Home() {
                       <option value="">אירוע חדש ללא שכפול</option>
                       {cloneableWholeEvents.map((event) => (
                         <option value={event.id} key={event.id}>
-                          {event.title} · {formatShortDate(event.starts_at)}
+                          {event.title} {formatShortDate(event.starts_at)}
                         </option>
                       ))}
                     </select>
@@ -6410,7 +6726,7 @@ export default function Home() {
                         >
                           <option value="">העתקה מאירוע אחר...</option>
                           {copyableEvents.map((event) => (
-                            <option value={event.id} key={event.id}>{event.title} · {formatShortDate(event.starts_at)}</option>
+                            <option value={event.id} key={event.id}>{event.title} {formatShortDate(event.starts_at)}</option>
                           ))}
                         </select>
                         <button
