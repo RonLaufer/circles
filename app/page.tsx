@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.5.7";
+const APP_VERSION = "v1.0.6.2";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -1502,6 +1502,19 @@ export default function Home() {
   useEffect(() => {
     if (profileScreenOpen) void loadPersonalDashboard();
   }, [loadPersonalDashboard, profileScreenOpen]);
+
+  useEffect(() => {
+    if (!communityFormOpen && !eventFormOpen) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      window.scrollTo({ top: 0, behavior: "auto" });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [communityFormOpen, eventFormOpen]);
 
   useEffect(() => {
     const applyAddressState = () => {
@@ -4704,8 +4717,6 @@ export default function Home() {
           </>
         )}
 
-      </div>
-
       {profileScreenOpen && (
         <div className="edit-screen-shell">
             <section className="profile-card profile-screen-card">
@@ -5360,9 +5371,9 @@ export default function Home() {
       )}
 
       {communityFormOpen && (
-        <div className="edit-screen-shell">
-          <section className="editor-page-card community-editor-card" aria-labelledby="community-form-title">
-            <div className="editor-screen-toolbar">
+        <div className="circle-editor-screen">
+          <section className="circle-editor-card" aria-labelledby="community-form-title">
+            <div className="clean-editor-toolbar">
               <button
                 type="button"
                 className="back-button"
@@ -5383,7 +5394,7 @@ export default function Home() {
                 : "לאחר השמירה תוגדרו אוטומטית כמנהלי המעגל."}
             </p>
 
-            <div className="profile-form modal-form">
+            <div className="clean-editor-form circle-editor-form">
               <div className="image-upload-field">
                 <span className="field-label">תמונת המעגל</span>
                 <input
@@ -5462,7 +5473,6 @@ export default function Home() {
                   value={communityName}
                   onChange={(event) => setCommunityName(event.target.value)}
                   maxLength={120}
-                  autoFocus
                   placeholder="לדוגמה: החברים מהשכונה"
                 />
               </label>
@@ -5501,7 +5511,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="modal-actions">
+            <div className="clean-editor-actions">
               <button
                 type="button"
                 className="secondary-button"
@@ -6211,9 +6221,9 @@ export default function Home() {
       )}
 
       {eventFormOpen && selectedCommunity && (
-        <div className="edit-screen-shell">
-          <section className="editor-page-card event-editor-card" aria-labelledby="event-form-title">
-            <div className="editor-screen-toolbar">
+        <div className="event-editor-screen">
+          <section className="event-editor-card-clean" aria-labelledby="event-form-title">
+            <div className="clean-editor-toolbar">
               <button
                 type="button"
                 className="back-button"
@@ -6228,7 +6238,7 @@ export default function Home() {
               {editingEvent ? "עריכת האירוע" : "יצירת אירוע"}
             </h2>
 
-            <div className="profile-form modal-form">
+            <div className="clean-editor-form event-editor-form">
               {!editingEvent && directCloneSourceEvent ? (
                 <div className="direct-clone-notice">
                   האירוע יועתק מהאירוע <strong>{directCloneSourceEvent.title}</strong> שהתקיים ב {formatShortDate(directCloneSourceEvent.starts_at)}
@@ -6292,7 +6302,6 @@ export default function Home() {
                   value={eventTitle}
                   onChange={(event) => setEventTitle(event.target.value)}
                   maxLength={140}
-                  autoFocus
                   placeholder="לדוגמה: ערב קיץ משותף"
                 />
               </label>
@@ -6472,7 +6481,7 @@ export default function Home() {
               </label>
             </div>
 
-            <div className="modal-actions">
+            <div className="clean-editor-actions">
               <button
                 type="button"
                 className="secondary-button"
@@ -6526,6 +6535,8 @@ export default function Home() {
           </section>
         </div>
       )}
+
+      </div>
 
       {lightbox && (
         <div

@@ -4540,3 +4540,257 @@ html.is-localhost {
     margin-bottom: 14px;
   }
 }
+
+/* circles61: editors live inside the main app container */
+.app-container > .edit-screen-shell {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 22px 0 40px;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.app-container > .edit-screen-shell > .editor-page-card,
+.app-container > .edit-screen-shell > .profile-screen-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.editor-page-card .profile-form,
+.editor-page-card .modal-form,
+.editor-page-card label,
+.editor-page-card input,
+.editor-page-card select,
+.editor-page-card textarea,
+.editor-page-card video,
+.editor-page-card img {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 680px) {
+  .app-page {
+    padding-inline: 9px;
+  }
+
+  .app-container > .edit-screen-shell {
+    margin: 10px 0 28px;
+  }
+
+  .app-container > .edit-screen-shell > .editor-page-card,
+  .app-container > .edit-screen-shell > .profile-screen-card {
+    padding: 20px 14px;
+    border-radius: 22px;
+  }
+}
+
+/* circles62: clean standalone editor layouts, without legacy modal/profile-form CSS */
+.circle-editor-screen,
+.event-editor-screen {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  margin: 22px 0 40px;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.circle-editor-card,
+.event-editor-card-clean {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 28px;
+  border-radius: 28px;
+  background: #ffffff;
+  color: var(--foreground);
+  box-sizing: border-box;
+  box-shadow: 0 14px 42px rgba(15, 23, 42, 0.09);
+  outline: 1px solid var(--line);
+}
+
+.clean-editor-toolbar {
+  inline-size: 100%;
+  min-inline-size: 0;
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 22px;
+}
+
+.clean-editor-form {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 24px;
+  box-sizing: border-box;
+}
+
+.clean-editor-form > *,
+.clean-editor-form label,
+.clean-editor-form .image-upload-field,
+.clean-editor-form .video-upload-field,
+.clean-editor-form .approval-setting,
+.clean-editor-form .bring-setting-panel,
+.clean-editor-form .bring-needs-editor,
+.clean-editor-form .copy-bring-table-row,
+.clean-editor-form .bring-need-add-row,
+.clean-editor-form .event-time-grid,
+.clean-editor-form .clone-event-field,
+.clean-editor-form .clone-event-select-shell {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  box-sizing: border-box;
+}
+
+.clean-editor-form label {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.clean-editor-form input,
+.clean-editor-form textarea,
+.clean-editor-form select {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+  color: var(--foreground);
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.clean-editor-form input,
+.clean-editor-form select {
+  min-block-size: 48px;
+}
+
+.clean-editor-form textarea {
+  min-block-size: 150px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.clean-editor-form input:focus,
+.clean-editor-form textarea:focus,
+.clean-editor-form select:focus {
+  border-color: #fcd34d;
+  box-shadow: 0 0 0 4px rgba(253, 230, 138, 0.5);
+}
+
+.clean-editor-form small {
+  color: #64748b;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.circle-editor-form .selected-community-image-button,
+.event-editor-form .selected-event-image-button {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  display: block;
+  overflow: hidden;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+.circle-editor-form .selected-community-image,
+.event-editor-form .selected-event-image {
+  inline-size: auto;
+  max-inline-size: 100%;
+  block-size: auto;
+  max-block-size: 360px;
+  display: block;
+  object-fit: contain;
+}
+
+.circle-editor-form .selected-community-video,
+.event-editor-form video {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  box-sizing: border-box;
+}
+
+.clean-editor-actions {
+  inline-size: 100%;
+  min-inline-size: 0;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 680px) {
+  .circle-editor-screen,
+  .event-editor-screen {
+    margin: 10px 0 28px;
+  }
+
+  .circle-editor-card,
+  .event-editor-card-clean {
+    padding: 20px 14px;
+    border-radius: 22px;
+  }
+
+  .clean-editor-form .event-time-grid,
+  .clean-editor-form .approval-choice-group,
+  .clean-editor-form .copy-bring-table-row,
+  .clean-editor-form .bring-need-add-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .clean-editor-form .copy-bring-table-row button,
+  .clean-editor-form .bring-need-add-row button {
+    inline-size: 100%;
+    max-inline-size: 100%;
+  }
+
+  .clean-editor-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .clean-editor-actions button {
+    inline-size: 100%;
+  }
+}
+
+.clean-editor-form .clone-event-field {
+  inline-size: min(100%, 520px);
+  align-self: flex-start;
+}
+
+.clean-editor-form .direct-clone-notice,
+.clean-editor-form .field-label,
+.clean-editor-form label > span {
+  overflow-wrap: anywhere;
+}
