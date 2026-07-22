@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { RichText } from "@/app/components/RichText";
@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.6.2";
+const APP_VERSION = "v1.0.7.2";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -1503,18 +1503,39 @@ export default function Home() {
     if (profileScreenOpen) void loadPersonalDashboard();
   }, [loadPersonalDashboard, profileScreenOpen]);
 
-  useEffect(() => {
-    if (!communityFormOpen && !eventFormOpen) return;
+  useLayoutEffect(() => {
+    const editorOpen = eventFormOpen;
+    const root = document.documentElement;
+    const body = document.body;
 
-    const frame = window.requestAnimationFrame(() => {
+    root.classList.toggle("editor-screen-open", editorOpen);
+    body.classList.toggle("editor-screen-open", editorOpen);
+
+    if (!editorOpen) return;
+
+    const resetEditorViewport = () => {
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
-      window.scrollTo({ top: 0, behavior: "auto" });
-    });
 
-    return () => window.cancelAnimationFrame(frame);
-  }, [communityFormOpen, eventFormOpen]);
+      // In an RTL document Chrome can retain a negative horizontal scroll
+      // position when the previous screen is replaced by an editor screen.
+      root.scrollLeft = 0;
+      body.scrollLeft = 0;
+      window.scrollTo({ left: 0, top: 0, behavior: "auto" });
+    };
+
+    resetEditorViewport();
+    const frame = window.requestAnimationFrame(resetEditorViewport);
+    const timer = window.setTimeout(resetEditorViewport, 50);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      root.classList.remove("editor-screen-open");
+      body.classList.remove("editor-screen-open");
+    };
+  }, [communityFormOpen, editingCommunityId, eventFormOpen]);
 
   useEffect(() => {
     const applyAddressState = () => {
@@ -5416,140 +5437,8 @@ export default function Home() {
                   {communityFormImageUrl ? "החלפת תמונה" : "צירוף תמונה"}
                 </button>
                 <small>התמונה אינה חייבת להיות ריבועית. עד 3MB.</small>
-
-                {communityFormImageUrl && (
-                  <button
-                    type="button"
-                    className="image-zoom-button selected-community-image-button"
-                    onClick={() => openImage(communityFormImageUrl, "תמונת המעגל")}
-                    aria-label="הגדלת תמונת המעגל"
-                  >
-                    <img
-                      className="selected-community-image"
-                      src={communityFormImageUrl}
-                      alt="תמונת המעגל"
-                    />
-                  </button>
-                )}
-              </div>
-
-              <div className="video-upload-field">
-                <span className="field-label">סרטון המעגל</span>
-                <input
-                  ref={communityVideoInputRef}
-                  className="hidden-file-input"
-                  type="file"
-                  accept="video/mp4,video/webm,video/quicktime"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    if (file) prepareCommunityVideo(file);
-                  }}
-                />
-                <button
-                  type="button"
-                  className="primary-button upload-image-button"
-                  onClick={() => communityVideoInputRef.current?.click()}
-                >
-                  {communityFormVideoUrl ? "החלפת סרטון" : "צירוף סרטון"}
-                </button>
-                <small>סרטון אחד מסוג MP4, MOV או WebM, עד 50MB.</small>
-
-                {communityFormVideoUrl && (
-                  <video
-                    className="selected-community-video"
-                    src={communityFormVideoUrl}
-                    controls
-                    preload="metadata"
-                    playsInline
-                  />
-                )}
-              </div>
-
-              <label>
-                <span>שם המעגל</span>
-                <input
-                  type="text"
-                  value={communityName}
-                  onChange={(event) => setCommunityName(event.target.value)}
-                  maxLength={120}
-                  placeholder="לדוגמה: החברים מהשכונה"
-                />
-              </label>
-
-              <label>
-                <span>תיאור קצר</span>
-                <textarea
-                  value={communityDescription}
-                  onChange={(event) => setCommunityDescription(event.target.value)}
-                  maxLength={600}
-                  rows={4}
-                  placeholder="כמה מילים על המעגל..."
-                />
-                <small>{communityDescription.length} / 600</small>
-              </label>
-
-              <div className="approval-setting">
-                <span className="field-label">האם כל משתמש חדש צריך אישור?</span>
-                <div className="approval-choice-group" role="group" aria-label="אישור משתמשים חדשים">
-                  <button
-                    type="button"
-                    className={communityRequiresApproval ? "approval-choice selected" : "approval-choice"}
-                    onClick={() => setCommunityRequiresApproval(true)}
-                  >
-                    כן, נדרש אישור
-                  </button>
-                  <button
-                    type="button"
-                    className={!communityRequiresApproval ? "approval-choice selected" : "approval-choice"}
-                    onClick={() => setCommunityRequiresApproval(false)}
-                  >
-                    לא, אפשר להצטרף
-                  </button>
-                </div>
-                <small>כאשר נדרש אישור, מנהלי המעגל יוכלו לאשר או לדחות בקשות הצטרפות.</small>
               </div>
             </div>
-
-            <div className="clean-editor-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={closeCommunityForm}
-                disabled={savingCommunity}
-              >
-                ביטול
-              </button>
-              <button
-                type="button"
-                className={`primary-button${communityFormIsDirty ? " save-button-dirty" : ""}`}
-                onClick={saveCommunity}
-                disabled={savingCommunity}
-              >
-                {savingCommunity
-                  ? "שומרים..."
-                  : editingCommunity
-                    ? "שמירת המעגל"
-                    : "יצירת המעגל"}
-              </button>
-            </div>
-
-            {editingCommunity && (editingCommunity.role === "owner" || isSystemAdmin) && (
-              <div className="editor-danger-zone">
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() =>
-                    setPendingMemberAction({ type: "delete_circle", community: editingCommunity })
-                  }
-                  disabled={savingCommunity}
-                >
-                  מחיקת המעגל
-                </button>
-              </div>
-            )}
-
-            {message && <p className={`message-box ${messageTone}`}>{message}</p>}
           </section>
         </div>
       )}

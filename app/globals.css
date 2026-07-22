@@ -4794,3 +4794,29 @@ html.is-localhost {
 .clean-editor-form label > span {
   overflow-wrap: anywhere;
 }
+
+/* circles63: keep RTL editor screens anchored to the viewport */
+html.editor-screen-open,
+body.editor-screen-open {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  overflow-x: clip;
+  overscroll-behavior-inline: none;
+}
+
+.editor-screen-open .app-page,
+.editor-screen-open .app-container,
+.editor-screen-open .circle-editor-screen,
+.editor-screen-open .event-editor-screen,
+.editor-screen-open .circle-editor-card,
+.editor-screen-open .event-editor-card-clean {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-x: clip;
+}
+
+.editor-screen-open .circle-editor-screen,
+.editor-screen-open .event-editor-screen {
+  contain: inline-size;
+}
+
