@@ -19,7 +19,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.7.2";
+const APP_VERSION = "v1.0.6.6";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
@@ -5405,19 +5405,15 @@ export default function Home() {
               </button>
             </div>
 
-            <p className="section-kicker">{editingCommunity ? "עריכת מעגל" : "מעגל חדש"}</p>
-            <h2 id="community-form-title">
-              {editingCommunity ? "עריכת המעגל" : "יצירת מעגל"}
+            <h2 id="community-form-title" className="visually-hidden">
+              {editingCommunity ? "עריכת המעגל" : "יצירת מעגל חדש"}
             </h2>
-            <p className="modal-intro">
-              {editingCommunity
-                ? "אפשר לעדכן את אותם הפרטים שהוגדרו בעת יצירת המעגל."
-                : "לאחר השמירה תוגדרו אוטומטית כמנהלי המעגל."}
-            </p>
 
             <div className="clean-editor-form circle-editor-form">
               <div className="image-upload-field">
-                <span className="field-label">תמונת המעגל</span>
+                <label>
+                  <span>תמונת המעגל</span>
+                </label>
                 <input
                   ref={communityImageInputRef}
                   className="hidden-file-input"
@@ -5434,11 +5430,132 @@ export default function Home() {
                   className="primary-button upload-image-button"
                   onClick={() => communityImageInputRef.current?.click()}
                 >
-                  {communityFormImageUrl ? "החלפת תמונה" : "צירוף תמונה"}
+                  {communityFormImageUrl ? "החלפת תמונה" : "העלאת תמונה"}
                 </button>
-                <small>התמונה אינה חייבת להיות ריבועית. עד 3MB.</small>
+                <small>התמונה תכווץ לפני ההעלאה. גודל מקסימלי 3MB.</small>
+
+                {communityFormImageUrl && (
+                  <button
+                    type="button"
+                    className="image-zoom-button selected-community-image-button"
+                    onClick={() => openImage(communityFormImageUrl, "תמונת המעגל")}
+                    aria-label="הגדלת תמונת המעגל"
+                  >
+                    <img className="selected-community-image" src={communityFormImageUrl} alt="תמונת המעגל" />
+                  </button>
+                )}
+              </div>
+
+              <div className="video-upload-field">
+                <label>
+                  <span>סרטון המעגל</span>
+                </label>
+                <input
+                  ref={communityVideoInputRef}
+                  className="hidden-file-input"
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime,video/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void prepareVideo(file, "community");
+                  }}
+                />
+                <button
+                  type="button"
+                  className="primary-button upload-image-button"
+                  onClick={() => communityVideoInputRef.current?.click()}
+                >
+                  {communityFormVideoUrl ? "החלפת סרטון" : "העלאת סרטון"}
+                </button>
+                <small>סרטון אחד בלבד. עד 50MB ובפורמט MP4 / MOV / WebM.</small>
+
+                {communityFormVideoUrl && (
+                  <video className="selected-community-video" src={communityFormVideoUrl} controls preload="metadata" />
+                )}
+              </div>
+
+              <label>
+                <span>שם המעגל</span>
+                <input
+                  type="text"
+                  value={communityName}
+                  onChange={(event) => setCommunityName(event.target.value)}
+                  maxLength={140}
+                  placeholder="לדוגמה: מעגל קהילתי שכונתי"
+                />
+              </label>
+
+              <label>
+                <span>תיאור קצר</span>
+                <textarea
+                  value={communityDescription}
+                  onChange={(event) => setCommunityDescription(event.target.value)}
+                  maxLength={2000}
+                  rows={7}
+                  placeholder="ספרו בקצרה על המעגל, המפגשים והאווירה..."
+                />
+                <small>{communityDescription.length} / 2000</small>
+              </label>
+
+              <div className="approval-setting">
+                <span className="field-label">האם כל משתמש חדש צריך אישור?</span>
+                <div className="approval-choice-group" role="group" aria-label="אישור משתמשים חדשים למעגל">
+                  <button
+                    type="button"
+                    className={communityRequiresApproval ? "approval-choice selected" : "approval-choice"}
+                    onClick={() => setCommunityRequiresApproval(true)}
+                  >
+                    כן, נדרש אישור
+                  </button>
+                  <button
+                    type="button"
+                    className={!communityRequiresApproval ? "approval-choice selected" : "approval-choice"}
+                    onClick={() => setCommunityRequiresApproval(false)}
+                  >
+                    לא, אפשר להצטרף
+                  </button>
+                </div>
               </div>
             </div>
+
+            <div className="clean-editor-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeCommunityForm}
+                disabled={savingCommunity}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                className={`primary-button${communityFormIsDirty ? " save-button-dirty" : ""}`}
+                onClick={() => void saveCommunity()}
+                disabled={savingCommunity}
+              >
+                {savingCommunity
+                  ? "שומרים..."
+                  : editingCommunity
+                    ? "שמירת המעגל"
+                    : "יצירת המעגל"}
+              </button>
+            </div>
+
+            {editingCommunity && (isSystemAdmin || editingCommunity.created_by === user.id) && (
+              <div className="event-management-actions" aria-label="ניהול המעגל">
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => setPendingMemberAction({ type: "delete_circle", community: editingCommunity })}
+                  disabled={savingCommunity}
+                >
+                  מחיקת המעגל
+                </button>
+              </div>
+            )}
+
+            {message && <p className={`message-box ${messageTone}`}>{message}</p>}
           </section>
         </div>
       )}
