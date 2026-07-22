@@ -19,12 +19,14 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.4.3";
+const APP_VERSION = "v1.0.4.7";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
+const MAX_GALLERY_IMAGES = 20;
+const MAX_GALLERY_VIDEO_BYTES = 20 * 1024 * 1024;
 
 type SelectedImage = {
   blob: Blob;
@@ -64,6 +66,7 @@ type SharedEvent = {
   image_url: string | null;
   participant_limit: number | null;
   share_token: string;
+  status: "active" | "cancelled";
   community_name: string;
   community_description: string;
   community_logo_url: string | null;
@@ -102,6 +105,9 @@ type CommunityEvent = {
   participant_limit: number | null;
   bring_mode: EventBringMode;
   share_token: string;
+  status: "active" | "cancelled";
+  cancelled_at: string | null;
+  cancelled_by: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -119,6 +125,9 @@ type EventAttendance = {
   created_at: string;
   updated_at: string;
   full_name: string;
+  city: string;
+  phone: string;
+  community_role: CommunityRole | null;
   avatar_url: string | null;
   google_avatar_url: string | null;
 };
@@ -158,11 +167,43 @@ type BringDisplayRow =
   | { kind: "need"; sortName: string; need: EventBringNeed }
   | { kind: "free"; sortName: string; contribution: EventBringContribution };
 
+
+type AppNotification = {
+  id: string;
+  community_id: string | null;
+  event_id: string | null;
+  type: string;
+  title: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+};
+
+type EventGalleryPhoto = {
+  id: string;
+  event_id: string;
+  user_id: string;
+  image_url: string;
+  media_type: "image" | "video";
+  created_at: string;
+  full_name: string;
+};
+
+type PersonalEventRow = {
+  event: CommunityEvent;
+  community: Community;
+  attendance: EventAttendance | null;
+};
+
 type PendingMemberAction =
   | { type: "remove"; member: CommunityMember }
   | { type: "role"; member: CommunityMember; nextRole: "admin" | "member" }
   | { type: "leave"; community: Community }
-  | { type: "attendance"; attendance: EventAttendance };
+  | { type: "attendance"; attendance: EventAttendance }
+  | { type: "delete_event"; event: CommunityEvent }
+  | { type: "cancel_event"; event: CommunityEvent; cancel: boolean }
+  | { type: "delete_circle"; community: Community }
+  | { type: "delete_gallery"; photo: EventGalleryPhoto };
 
 function GoogleIcon() {
   return (
@@ -411,10 +452,13 @@ async function compressImage(file: File): Promise<SelectedImage> {
   }
 }
 
+function isSystemAdminEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
+}
+
 function roleLabel(role: CommunityRole) {
-  if (role === "owner") return "בעלים";
-  if (role === "admin") return "מנהל";
-  return "חבר";
+  if (role === "owner" || role === "admin") return "מנהל/ת";
+  return "חבר/ה";
 }
 
 function attendanceStatusLabel(status: AttendanceStatus) {
@@ -485,6 +529,17 @@ function formatShortDate(value: string) {
   return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
 }
 
+function formatJoinDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const timePart = new Intl.DateTimeFormat("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+  return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} ${timePart}`;
+}
+
 function formatEventDate(startsAt: string, endsAt?: string | null) {
   const start = new Date(startsAt);
   if (Number.isNaN(start.getTime())) return "";
@@ -542,6 +597,8 @@ export default function Home() {
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
   const communityImageInputRef = useRef<HTMLInputElement | null>(null);
   const eventImageInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryImageInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryVideoInputRef = useRef<HTMLInputElement | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [fullName, setFullName] = useState("");
@@ -617,6 +674,16 @@ export default function Home() {
   const [shareCommunity, setShareCommunity] = useState<Community | null>(null);
   const [shareEvent, setShareEvent] = useState<CommunityEvent | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [galleryPhotos, setGalleryPhotos] = useState<EventGalleryPhoto[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const [cloneEventId, setCloneEventId] = useState("");
+  const [personalEvents, setPersonalEvents] = useState<PersonalEventRow[]>([]);
+  const [personalCommitments, setPersonalCommitments] = useState<Array<EventBringContribution & { event_title: string; starts_at: string; community_id: string; community_name: string; share_token: string }>>([]);
+  const [personalLoading, setPersonalLoading] = useState(false);
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(null);
   const [pendingEventShareToken, setPendingEventShareToken] = useState<string | null>(null);
   const [pendingEventOpenId, setPendingEventOpenId] = useState<string | null>(null);
@@ -738,21 +805,27 @@ export default function Home() {
         (profileRows ?? []).map((memberProfile) => [memberProfile.id, memberProfile]),
       );
 
-      setCommunityMembers(
-        (membershipRows ?? []).map((membership) => {
-          const memberProfile = profilesById.get(membership.user_id);
-          return {
-            user_id: membership.user_id,
-            role: membership.role as CommunityRole,
-            joined_at: membership.joined_at,
-            full_name: memberProfile?.full_name || "משתמש",
-            city: memberProfile?.city ?? "",
-            phone: memberProfile?.phone ?? "",
-            avatar_url: memberProfile?.avatar_url ?? null,
-            google_avatar_url: memberProfile?.google_avatar_url ?? null,
-          };
-        }),
-      );
+      const mappedMembers = (membershipRows ?? []).map((membership) => {
+        const memberProfile = profilesById.get(membership.user_id);
+        return {
+          user_id: membership.user_id,
+          role: membership.role as CommunityRole,
+          joined_at: membership.joined_at,
+          full_name: memberProfile?.full_name || "משתמש",
+          city: memberProfile?.city ?? "",
+          phone: memberProfile?.phone ?? "",
+          avatar_url: memberProfile?.avatar_url ?? null,
+          google_avatar_url: memberProfile?.google_avatar_url ?? null,
+        };
+      });
+
+      mappedMembers.sort((first, second) => {
+        const firstManager = first.role === "owner" || first.role === "admin" ? 0 : 1;
+        const secondManager = second.role === "owner" || second.role === "admin" ? 0 : 1;
+        if (firstManager !== secondManager) return firstManager - secondManager;
+        return new Date(first.joined_at).getTime() - new Date(second.joined_at).getTime();
+      });
+      setCommunityMembers(mappedMembers);
 
       if (role === "owner" || role === "admin") {
         const { data: requestRows, error: requestsError } = await supabase.rpc(
@@ -782,7 +855,7 @@ export default function Home() {
       const { data, error } = await supabase
         .from("community_events")
         .select(
-          "id,community_id,title,description,location,starts_at,ends_at,image_url,participant_limit,bring_mode,share_token,created_by,created_at,updated_at",
+          "id,community_id,title,description,location,starts_at,ends_at,image_url,participant_limit,bring_mode,share_token,status,cancelled_at,cancelled_by,created_by,created_at,updated_at",
         )
         .eq("community_id", communityId)
         .order("starts_at", { ascending: true });
@@ -833,7 +906,7 @@ export default function Home() {
       const { data: profileRows, error: profilesError } = userIds.length
         ? await supabase
             .from("profiles")
-            .select("id,full_name,avatar_url,google_avatar_url")
+            .select("id,full_name,city,phone,avatar_url,google_avatar_url")
             .in("id", userIds)
         : { data: [], error: null };
 
@@ -845,12 +918,18 @@ export default function Home() {
         (profileRows ?? []).map((attendeeProfile) => [attendeeProfile.id, attendeeProfile]),
       );
 
+      const roleByUserId = new Map(
+        communityMembers.map((member) => [member.user_id, member.role]),
+      );
       const mappedAttendance = (attendanceRows ?? []).map((attendance) => {
         const attendeeProfile = profilesById.get(attendance.user_id);
         return {
           ...attendance,
           status: attendance.status as AttendanceStatus,
           full_name: attendeeProfile?.full_name || "משתמש",
+          city: attendeeProfile?.city ?? "",
+          phone: attendeeProfile?.phone ?? "",
+          community_role: roleByUserId.get(attendance.user_id) ?? null,
           avatar_url: attendeeProfile?.avatar_url ?? null,
           google_avatar_url: attendeeProfile?.google_avatar_url ?? null,
         };
@@ -872,7 +951,7 @@ export default function Home() {
       setAttendanceNote(ownAttendance?.note ?? "");
       setAttendanceLoading(false);
     },
-    [supabase, user],
+    [communityMembers, supabase, user],
   );
 
   const loadEventBringData = useCallback(
@@ -965,6 +1044,150 @@ export default function Home() {
     },
     [supabase, user],
   );
+
+  const loadNotifications = useCallback(async () => {
+    if (!user) return;
+    setNotificationsLoading(true);
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("id,community_id,event_id,type,title,body,read_at,created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error("Loading notifications failed", error);
+      setNotifications([]);
+    } else {
+      setNotifications((data ?? []) as AppNotification[]);
+    }
+    setNotificationsLoading(false);
+  }, [supabase, user]);
+
+  const loadEventGallery = useCallback(async (eventId: string) => {
+    setGalleryLoading(true);
+    const { data: photoRows, error } = await supabase
+      .from("event_gallery_photos")
+      .select("id,event_id,user_id,image_url,media_type,created_at")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Loading event gallery failed", error);
+      setGalleryPhotos([]);
+      setGalleryLoading(false);
+      return;
+    }
+
+    const userIds = Array.from(new Set((photoRows ?? []).map((photo) => photo.user_id)));
+    const { data: profileRows } = userIds.length
+      ? await supabase.from("profiles").select("id,full_name").in("id", userIds)
+      : { data: [] };
+    const names = new Map((profileRows ?? []).map((row) => [row.id, row.full_name]));
+    setGalleryPhotos(
+      (photoRows ?? []).map((photo) => ({
+        ...photo,
+        full_name: names.get(photo.user_id) || "משתמש",
+      })) as EventGalleryPhoto[],
+    );
+    setGalleryLoading(false);
+  }, [supabase]);
+
+  const loadPersonalDashboard = useCallback(async () => {
+    if (!user || communities.length === 0) {
+      setPersonalEvents([]);
+      setPersonalCommitments([]);
+      return;
+    }
+
+    setPersonalLoading(true);
+    const { data: attendanceRows, error: attendanceError } = await supabase
+      .from("event_attendance")
+      .select("event_id,user_id,status,party_size,guest_names,note,created_at,updated_at")
+      .eq("user_id", user.id);
+
+    const eventIds = Array.from(new Set((attendanceRows ?? []).map((row) => row.event_id)));
+    const { data: eventRows, error: eventsError } = eventIds.length
+      ? await supabase
+          .from("community_events")
+          .select("id,community_id,title,description,location,starts_at,ends_at,image_url,participant_limit,bring_mode,share_token,status,cancelled_at,cancelled_by,created_by,created_at,updated_at")
+          .in("id", eventIds)
+      : { data: [], error: null };
+
+    if (attendanceError || eventsError) {
+      console.error("Loading personal events failed", attendanceError ?? eventsError);
+      setPersonalEvents([]);
+    } else {
+      const attendanceByEvent = new Map((attendanceRows ?? []).map((row) => [row.event_id, row]));
+      const communityById = new Map(communities.map((community) => [community.id, community]));
+      const rows = (eventRows ?? [])
+        .map((event) => {
+          const community = communityById.get(event.community_id);
+          if (!community) return null;
+          const attendance = attendanceByEvent.get(event.id);
+          return {
+            event: event as CommunityEvent,
+            community,
+            attendance: attendance
+              ? ({
+                  ...attendance,
+                  status: attendance.status as AttendanceStatus,
+                  full_name: profile?.full_name ?? "",
+                  phone: profile?.phone ?? "",
+                  community_role: community.role,
+                  avatar_url: profile?.avatar_url ?? null,
+                  google_avatar_url: profile?.google_avatar_url ?? null,
+                } as EventAttendance)
+              : null,
+          };
+        })
+        .filter(Boolean) as PersonalEventRow[];
+      rows.sort((a, b) => new Date(b.event.starts_at).getTime() - new Date(a.event.starts_at).getTime());
+      setPersonalEvents(rows);
+    }
+
+    const { data: contributionRows, error: contributionError } = await supabase
+      .from("event_bring_contributions")
+      .select("id,event_id,need_id,user_id,item_name,quantity,note,created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (contributionError) {
+      console.error("Loading personal commitments failed", contributionError);
+      setPersonalCommitments([]);
+    } else {
+      const contributionEventIds = Array.from(new Set((contributionRows ?? []).map((row) => row.event_id)));
+      const { data: contributionEventRows } = contributionEventIds.length
+        ? await supabase
+            .from("community_events")
+            .select("id,community_id,title,starts_at,share_token")
+            .in("id", contributionEventIds)
+        : { data: [] };
+      const eventById = new Map((contributionEventRows ?? []).map((row) => [row.id, row]));
+      const communityById = new Map(communities.map((community) => [community.id, community]));
+      setPersonalCommitments(
+        (contributionRows ?? [])
+          .map((row) => {
+            const event = eventById.get(row.event_id);
+            if (!event) return null;
+            const community = communityById.get(event.community_id);
+            return {
+              ...row,
+              full_name: profile?.full_name ?? "",
+              avatar_url: profile?.avatar_url ?? null,
+              google_avatar_url: profile?.google_avatar_url ?? null,
+              event_title: event.title,
+              starts_at: event.starts_at,
+              community_id: event.community_id,
+              community_name: community?.name ?? "",
+              share_token: event.share_token,
+            };
+          })
+          .filter(Boolean) as Array<EventBringContribution & { event_title: string; starts_at: string; community_id: string; community_name: string; share_token: string }>,
+      );
+    }
+    setPersonalLoading(false);
+  }, [communities, profile, supabase, user]);
 
   const loadSharedInvite = useCallback(
     async (shareToken: string) => {
@@ -1250,6 +1473,21 @@ export default function Home() {
   }, [loadCommunities, loadProfile, loadSharedEvent, loadSharedInvite, supabase]);
 
   useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    void loadNotifications();
+    const timer = window.setInterval(() => void loadNotifications(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadNotifications, user]);
+
+  useEffect(() => {
+    if (profileScreenOpen) void loadPersonalDashboard();
+  }, [loadPersonalDashboard, profileScreenOpen]);
+
+  useEffect(() => {
     const applyAddressState = () => {
       const params = new URLSearchParams(window.location.search);
       const eventToken = params.get("event");
@@ -1355,6 +1593,7 @@ export default function Home() {
       setBringItemName("");
       setBringItemQuantity("1");
       setBringMessage(null);
+      setGalleryPhotos([]);
       return;
     }
 
@@ -1363,12 +1602,23 @@ export default function Home() {
       void Promise.all([
         loadEventAttendance(selectedEventId),
         loadEventBringData(selectedEventId),
+        loadEventGallery(selectedEventId),
       ]);
     }
-  }, [communityEvents, loadEventAttendance, loadEventBringData, selectedEventId]);
+  }, [communityEvents, loadEventAttendance, loadEventBringData, loadEventGallery, selectedEventId]);
 
   useEffect(() => {
-    if (!selectedEventId || !attendanceStatus || attendanceLoading || savingAttendance) return;
+    const targetEvent = communityEvents.find((event) => event.id === selectedEventId) ?? null;
+    const targetCommunity = communities.find((community) => community.id === targetEvent?.community_id) ?? null;
+    const isManager = Boolean(
+      targetEvent && targetCommunity &&
+      (isSystemAdminEmail(user?.email) || targetCommunity.role === "owner" || targetCommunity.role === "admin"),
+    );
+    const isLockedForMember = Boolean(
+      targetEvent && !isManager &&
+      (targetEvent.status === "cancelled" || new Date(targetEvent.starts_at).getTime() <= Date.now()),
+    );
+    if (!selectedEventId || !attendanceStatus || attendanceLoading || savingAttendance || isLockedForMember) return;
 
     const currentAttendance = eventAttendance.find(
       (attendance) => attendance.user_id === user?.id,
@@ -1412,6 +1662,8 @@ export default function Home() {
     attendanceNote,
     attendancePartySize,
     attendanceStatus,
+    communities,
+    communityEvents,
     eventAttendance,
     savingAttendance,
     selectedEventId,
@@ -1746,7 +1998,7 @@ export default function Home() {
     );
     if (!currentCommunity || !user) return false;
 
-    const isSystemAdmin = user.email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
+    const isSystemAdmin = isSystemAdminEmail(user.email);
     const isCircleCreator = currentCommunity.created_by === user.id;
 
     if (!isSystemAdmin && !isCircleCreator) {
@@ -1861,6 +2113,17 @@ export default function Home() {
       );
     } else if (pendingMemberAction.type === "attendance") {
       succeeded = await deleteEventAttendance(pendingMemberAction.attendance);
+    } else if (pendingMemberAction.type === "delete_event") {
+      succeeded = await deleteCommunityEvent(pendingMemberAction.event);
+    } else if (pendingMemberAction.type === "cancel_event") {
+      succeeded = await setEventCancellation(
+        pendingMemberAction.event,
+        pendingMemberAction.cancel,
+      );
+    } else if (pendingMemberAction.type === "delete_circle") {
+      succeeded = await deleteCommunityCircle(pendingMemberAction.community);
+    } else if (pendingMemberAction.type === "delete_gallery") {
+      succeeded = await deleteGalleryPhoto(pendingMemberAction.photo);
     } else {
       succeeded = await leaveCommunity(pendingMemberAction.community);
     }
@@ -2285,6 +2548,7 @@ export default function Home() {
     setEventBringNeedName("");
     setEventBringNeedQuantity("1");
     setCopyNeedsFromEventId("");
+    setCloneEventId("");
     setEventHasParticipantLimit(false);
     setEventParticipantLimit("");
     setEventLocation("");
@@ -2295,6 +2559,52 @@ export default function Home() {
     });
     setMessage(null);
     setEventFormOpen(true);
+  }
+
+  async function applyEventClone(sourceEventId: string) {
+    setCloneEventId(sourceEventId);
+    if (!sourceEventId) {
+      openCreateEvent();
+      return;
+    }
+
+    const source = communityEvents.find((event) => event.id === sourceEventId);
+    if (!source) return;
+
+    setEventTitle(source.title);
+    setEventDateTime(toDateTimeLocalValue(source.starts_at));
+    setEventEndDateTime(toTimeInputValue(source.ends_at));
+    setEventBringMode(source.bring_mode ?? "free");
+    setEventHasParticipantLimit(source.participant_limit !== null);
+    setEventParticipantLimit(source.participant_limit?.toString() ?? "");
+    setEventLocation(source.location);
+    setEventDescription(source.description);
+    setEventImage((current) => {
+      clearSelectedImage(current);
+      return null;
+    });
+
+    const { data, error } = await supabase
+      .from("event_bring_needs")
+      .select("item_name,quantity_needed")
+      .eq("event_id", source.id)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setMessageTone("error");
+      setMessage(`טעינת האירוע לשכפול נכשלה. ${formatSupabaseError(error)}`);
+      return;
+    }
+
+    setEventBringNeedDrafts(
+      (data ?? []).map((need) => ({
+        client_id: crypto.randomUUID(),
+        id: null,
+        item_name: need.item_name,
+        quantity_needed: need.quantity_needed,
+      })),
+    );
+    setMessage(null);
   }
 
   function openEventDetails(event: CommunityEvent) {
@@ -2332,6 +2642,7 @@ export default function Home() {
     setEventBringNeedName("");
     setEventBringNeedQuantity("1");
     setCopyNeedsFromEventId("");
+    setCloneEventId("");
     setEventHasParticipantLimit(event.participant_limit !== null);
     setEventParticipantLimit(event.participant_limit?.toString() ?? "");
     setEventLocation(event.location);
@@ -2370,6 +2681,7 @@ export default function Home() {
 
     setEventFormOpen(false);
     setEditingEventId(null);
+    setCloneEventId("");
     setEventBringNeedDrafts([]);
     setEventImage((current) => {
       clearSelectedImage(current);
@@ -2880,6 +3192,226 @@ export default function Home() {
     return true;
   }
 
+  async function setEventCancellation(event: CommunityEvent, cancel: boolean) {
+    const { error } = await supabase.rpc("set_event_cancelled", {
+      target_event_id: event.id,
+      target_cancelled: cancel,
+    });
+    if (error) {
+      setMessageTone("error");
+      setMessage(`עדכון מצב האירוע נכשל. ${formatSupabaseError(error)}`);
+      return false;
+    }
+    if (selectedCommunity) await loadCommunityEvents(selectedCommunity.id);
+    return true;
+  }
+
+  async function deleteCommunityEvent(event: CommunityEvent) {
+    const { error } = await supabase.rpc("delete_community_event", {
+      target_event_id: event.id,
+    });
+    if (error) {
+      setMessageTone("error");
+      setMessage(`מחיקת האירוע נכשלה. ${formatSupabaseError(error)}`);
+      return false;
+    }
+    setSelectedEventId(null);
+    if (selectedCommunity) {
+      setBrowserView({ circleToken: selectedCommunity.share_token }, "replace");
+      await loadCommunityEvents(selectedCommunity.id);
+    }
+    return true;
+  }
+
+  async function deleteCommunityCircle(community: Community) {
+    const { error } = await supabase.rpc("delete_community_circle", {
+      target_community_id: community.id,
+    });
+    if (error) {
+      setMessageTone("error");
+      setMessage(`מחיקת המעגל נכשלה. ${formatSupabaseError(error)}`);
+      return false;
+    }
+    setSelectedCommunityId(null);
+    setBrowserView({}, "replace");
+    if (user) await loadCommunities(user);
+    return true;
+  }
+
+  async function uploadGalleryMedia(file: File, mediaType: "image" | "video") {
+    if (!selectedEvent || !selectedCommunity || !user) return;
+
+    const imageCount = galleryPhotos.filter((item) => item.media_type === "image").length;
+    const videoCount = galleryPhotos.filter((item) => item.media_type === "video").length;
+
+    if (mediaType === "image" && imageCount >= MAX_GALLERY_IMAGES) {
+      setMessageTone("error");
+      setMessage(`אפשר להעלות עד ${MAX_GALLERY_IMAGES} תמונות לגלריה.`);
+      return;
+    }
+
+    if (mediaType === "video" && videoCount >= 1) {
+      setMessageTone("error");
+      setMessage("אפשר להעלות סרטון אחד בלבד לגלריה.");
+      return;
+    }
+
+    if (mediaType === "video" && file.size > MAX_GALLERY_VIDEO_BYTES) {
+      setMessageTone("error");
+      setMessage("אפשר להעלות סרטון בגודל של עד 20MB.");
+      return;
+    }
+
+    setGalleryBusy(true);
+    setMessage(null);
+    let objectPath = "";
+
+    try {
+      const mediaId = crypto.randomUUID();
+      let mediaBlob: Blob = file;
+      let extension = "webp";
+      let contentType = "image/webp";
+
+      if (mediaType === "image") {
+        const compressed = await compressImage(file);
+        mediaBlob = compressed.blob;
+        URL.revokeObjectURL(compressed.previewUrl);
+      } else {
+        const allowedVideoTypes = ["video/mp4", "video/webm", "video/quicktime"];
+        if (!allowedVideoTypes.includes(file.type)) {
+          throw new Error("unsupported_video_type");
+        }
+        contentType = file.type;
+        extension = file.type === "video/webm" ? "webm" : file.type === "video/quicktime" ? "mov" : "mp4";
+      }
+
+      objectPath = `${selectedCommunity.id}/${selectedEvent.id}/${user.id}/${mediaId}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from("event-gallery")
+        .upload(objectPath, mediaBlob, {
+          contentType,
+          cacheControl: "3600",
+          upsert: false,
+        });
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("event-gallery")
+        .getPublicUrl(objectPath);
+      const mediaUrl = `${publicUrlData.publicUrl}?v=${Date.now()}`;
+
+      const { error } = await supabase.from("event_gallery_photos").insert({
+        id: mediaId,
+        event_id: selectedEvent.id,
+        user_id: user.id,
+        image_url: mediaUrl,
+        media_type: mediaType,
+      });
+      if (error) throw error;
+
+      await loadEventGallery(selectedEvent.id);
+    } catch (error) {
+      if (objectPath) {
+        await supabase.storage.from("event-gallery").remove([objectPath]);
+      }
+      console.error("Uploading gallery media failed", error);
+      setMessageTone("error");
+      const formatted = formatSupabaseError(error);
+      if (error instanceof Error && error.message === "unsupported_video_type") {
+        setMessage("פורמט הסרטון אינו נתמך. אפשר להעלות MP4, MOV או WebM.");
+      } else if (formatted.includes("gallery_image_limit_reached")) {
+        setMessage(`אפשר להעלות עד ${MAX_GALLERY_IMAGES} תמונות לגלריה.`);
+      } else if (formatted.includes("gallery_video_limit_reached")) {
+        setMessage("אפשר להעלות סרטון אחד בלבד לגלריה.");
+      } else {
+        setMessage(`העלאת הקובץ לגלריה נכשלה. ${formatted}`);
+      }
+    }
+    setGalleryBusy(false);
+  }
+
+  async function deleteGalleryPhoto(photo: EventGalleryPhoto) {
+    const publicPathMarker = "/storage/v1/object/public/event-gallery/";
+    const markerIndex = photo.image_url.indexOf(publicPathMarker);
+    if (markerIndex >= 0) {
+      const objectPath = decodeURIComponent(
+        photo.image_url.slice(markerIndex + publicPathMarker.length),
+      );
+      const { error: storageError } = await supabase.storage
+        .from("event-gallery")
+        .remove([objectPath]);
+      if (storageError) {
+        setMessageTone("error");
+        setMessage(`מחיקת הקובץ נכשלה. ${formatSupabaseError(storageError)}`);
+        return false;
+      }
+    }
+
+    const { error } = await supabase
+      .from("event_gallery_photos")
+      .delete()
+      .eq("id", photo.id);
+    if (error) {
+      setMessageTone("error");
+      setMessage(`מחיקת הקובץ מהגלריה נכשלה. ${formatSupabaseError(error)}`);
+      return false;
+    }
+    if (selectedEventId) await loadEventGallery(selectedEventId);
+    return true;
+  }
+
+  async function openPersonalEventRow(row: PersonalEventRow) {
+    setProfileScreenOpen(false);
+    setSelectedCommunityId(row.community.id);
+    await loadCommunityEvents(row.community.id);
+    setPendingEventOpenId(row.event.id);
+    setBrowserView({ eventToken: row.event.share_token });
+  }
+
+  async function openNotification(notification: AppNotification) {
+    if (!notification.read_at) {
+      await supabase
+        .from("notifications")
+        .update({ read_at: new Date().toISOString() })
+        .eq("id", notification.id);
+    }
+    setNotificationsOpen(false);
+    await loadNotifications();
+
+    if (notification.event_id) {
+      const localEvent = communityEvents.find((event) => event.id === notification.event_id);
+      if (localEvent) {
+        setSelectedCommunityId(localEvent.community_id);
+        setSelectedEventId(localEvent.id);
+        setBrowserView({ eventToken: localEvent.share_token });
+        return;
+      }
+      const { data } = await supabase
+        .from("community_events")
+        .select("id,community_id,share_token")
+        .eq("id", notification.event_id)
+        .maybeSingle();
+      if (data) {
+        const community = communities.find((item) => item.id === data.community_id);
+        if (community) {
+          setSelectedCommunityId(community.id);
+          await loadCommunityEvents(community.id);
+          setPendingEventOpenId(data.id);
+          setBrowserView({ eventToken: data.share_token });
+        }
+      }
+      return;
+    }
+
+    if (notification.community_id) {
+      const community = communities.find((item) => item.id === notification.community_id);
+      if (community) {
+        setSelectedCommunityId(community.id);
+        setBrowserView({ circleToken: community.share_token });
+      }
+    }
+  }
+
   async function saveEvent() {
     if (!user || !selectedCommunity) return;
 
@@ -2942,6 +3474,9 @@ export default function Home() {
     const participantLimit = eventHasParticipantLimit ? parsedParticipantLimit : null;
     const existingEvent = editingEventId
       ? communityEvents.find((event) => event.id === editingEventId) ?? null
+      : null;
+    const cloneSourceEvent = cloneEventId
+      ? communityEvents.find((event) => event.id === cloneEventId) ?? null
       : null;
 
     if (existingEvent) {
@@ -3022,6 +3557,8 @@ export default function Home() {
       ends_at: endsAt,
       participant_limit: participantLimit,
       bring_mode: eventBringMode,
+      image_url: cloneSourceEvent?.image_url ?? null,
+      status: "active",
       created_by: user.id,
     });
 
@@ -3200,7 +3737,11 @@ export default function Home() {
   const selectedEvent = communityEvents.find((event) => event.id === selectedEventId) ?? null;
   const selectedEventDisplayImageUrl =
     selectedEvent?.image_url ?? selectedCommunity?.logo_url ?? null;
-  const eventFormImageUrl = eventImage?.previewUrl ?? editingEvent?.image_url ?? null;
+  const cloneSourceEvent = cloneEventId
+    ? communityEvents.find((event) => event.id === cloneEventId) ?? null
+    : null;
+  const eventFormImageUrl =
+    eventImage?.previewUrl ?? editingEvent?.image_url ?? cloneSourceEvent?.image_url ?? null;
   const ownEventAttendance = eventAttendance.find((attendance) => attendance.user_id === user.id) ?? null;
   const goingAttendance = eventAttendance.filter((attendance) => attendance.status === "going");
   const maybeAttendance = eventAttendance.filter((attendance) => attendance.status === "maybe");
@@ -3241,11 +3782,13 @@ export default function Home() {
       (first, second) =>
         new Date(second.starts_at).getTime() - new Date(first.starts_at).getTime(),
     );
-  const ownerMember = communityMembers.find((member) => member.role === "owner") ?? null;
+  const eventManagers = communityMembers.filter(
+    (member) => member.role === "owner" || member.role === "admin",
+  );
   const invitedMembership = invitedCommunity
     ? communities.find((community) => community.id === invitedCommunity.id) ?? null
     : null;
-  const isSystemAdmin = user.email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
+  const isSystemAdmin = isSystemAdminEmail(user.email);
   const canManageCommunityMembers = Boolean(
     selectedCommunity &&
       (isSystemAdmin || selectedCommunity.created_by === user.id),
@@ -3258,11 +3801,36 @@ export default function Home() {
   );
   const canManageEvents = Boolean(
     selectedCommunity &&
-      (selectedCommunity.role === "owner" || selectedCommunity.role === "admin"),
+      (isSystemAdmin || selectedCommunity.role === "owner" || selectedCommunity.role === "admin"),
   );
   const canDeleteAnyEventAttendance = Boolean(
     selectedEvent && (isSystemAdmin || canManageEvents),
   );
+  const selectedEventIsCancelled = selectedEvent?.status === "cancelled";
+  const selectedEventIsPast = Boolean(
+    selectedEvent && new Date(selectedEvent.starts_at).getTime() <= Date.now(),
+  );
+  const eventLockedForCurrentUser = Boolean(
+    selectedEvent && !canDeleteAnyEventAttendance &&
+      (selectedEventIsCancelled || selectedEventIsPast),
+  );
+  const selectedEventIsFull = Boolean(
+    selectedEvent?.participant_limit !== null &&
+      totalGoingPeople >= (selectedEvent?.participant_limit ?? Number.POSITIVE_INFINITY) &&
+      ownEventAttendance?.status !== "going",
+  );
+  const galleryCanUpload = Boolean(
+    selectedEvent &&
+      canManageEvents &&
+      new Date(selectedEvent.starts_at).getTime() <= Date.now() &&
+      (!selectedEventIsCancelled || canDeleteAnyEventAttendance),
+  );
+  const galleryImageCount = galleryPhotos.filter((item) => item.media_type === "image").length;
+  const galleryVideoCount = galleryPhotos.filter((item) => item.media_type === "video").length;
+  const cloneableWholeEvents = [...communityEvents].sort(
+    (first, second) => new Date(second.starts_at).getTime() - new Date(first.starts_at).getTime(),
+  );
+  const unreadNotificationCount = notifications.filter((item) => !item.read_at).length;
   const shareUrl = shareCommunity
     ? getCommunityShareUrl(shareCommunity.share_token)
     : "";
@@ -3308,46 +3876,80 @@ export default function Home() {
         eventParticipantLimit ||
         eventLocation ||
         eventDescription ||
-        eventImage,
+        eventImage ||
+        cloneEventId,
   );
-  const memberActionDialog = pendingMemberAction
-    ? pendingMemberAction.type === "remove"
-      ? {
+  const memberActionDialog = (() => {
+    if (!pendingMemberAction) return null;
+    switch (pendingMemberAction.type) {
+      case "remove":
+        return {
           title: "הסרת חבר מהמעגל",
           message: `להסיר את ${pendingMemberAction.member.full_name} מהמעגל? החברות שלו במעגל תימחק ממסד הנתונים.`,
           confirmLabel: "כן, להסיר",
           tone: "danger" as const,
-        }
-      : pendingMemberAction.type === "role"
-        ? {
-            title:
-              pendingMemberAction.nextRole === "admin"
-                ? "הפיכה למנהל מעגל"
-                : "החזרה לחבר רגיל",
-            message:
-              pendingMemberAction.nextRole === "admin"
-                ? `${pendingMemberAction.member.full_name} יוכל לערוך את המעגל ולאשר בקשות הצטרפות.`
-                : `${pendingMemberAction.member.full_name} לא יוכל עוד לנהל את המעגל.`,
-            confirmLabel: "כן, לשנות",
-            tone: "standard" as const,
-          }
-        : pendingMemberAction.type === "attendance"
-          ? {
-              title: "מחיקת השתתפות באירוע",
-              message:
-                pendingMemberAction.attendance.user_id === user.id
-                  ? "למחוק לגמרי את ההשתתפות שלך באירוע? גם הפריטים שהתחייבת להביא באירוע יימחקו."
-                  : `למחוק לגמרי את ההשתתפות של ${pendingMemberAction.attendance.full_name}? גם הפריטים שהמשתתף התחייב להביא יימחקו.`,
-              confirmLabel: "כן, למחוק",
-              tone: "danger" as const,
-            }
-          : {
-              title: "עזיבת המעגל",
-              message: `לעזוב את המעגל „${pendingMemberAction.community.name}”? החברות שלך במעגל תימחק ממסד הנתונים.`,
-              confirmLabel: "כן, לעזוב",
-              tone: "danger" as const,
-            }
-    : null;
+        };
+      case "role":
+        return {
+          title: pendingMemberAction.nextRole === "admin" ? "הפיכה למנהל/ת מעגל" : "החזרה לחבר/ה רגיל/ה",
+          message:
+            pendingMemberAction.nextRole === "admin"
+              ? `${pendingMemberAction.member.full_name} יוכל/תוכל לנהל את המעגל ולאשר בקשות הצטרפות.`
+              : `${pendingMemberAction.member.full_name} לא יוכל/תוכל עוד לנהל את המעגל.`,
+          confirmLabel: "כן, לשנות",
+          tone: "standard" as const,
+        };
+      case "attendance":
+        return {
+          title: "מחיקת השתתפות באירוע",
+          message:
+            pendingMemberAction.attendance.user_id === user.id
+              ? "למחוק לגמרי את ההשתתפות שלך באירוע? גם הפריטים שהתחייבת להביא באירוע יימחקו."
+              : `למחוק לגמרי את ההשתתפות של ${pendingMemberAction.attendance.full_name}? גם הפריטים שהמשתתף התחייב להביא יימחקו.`,
+          confirmLabel: "כן, למחוק",
+          tone: "danger" as const,
+        };
+      case "delete_event":
+        return {
+          title: "מחיקת האירוע",
+          message: `למחוק לצמיתות את האירוע „${pendingMemberAction.event.title}”? כל ההרשמות, הפריטים והתמונות שלו יימחקו.`,
+          confirmLabel: "כן, למחוק",
+          tone: "danger" as const,
+        };
+      case "cancel_event":
+        return {
+          title: pendingMemberAction.cancel ? "ביטול האירוע" : "פתיחת האירוע מחדש",
+          message: pendingMemberAction.cancel
+            ? `לסמן את „${pendingMemberAction.event.title}” כאירוע שבוטל? המשתתפים לא יוכלו לבצע שינויים.`
+            : `לפתוח מחדש את „${pendingMemberAction.event.title}”?`,
+          confirmLabel: pendingMemberAction.cancel ? "כן, לבטל את האירוע" : "כן, לפתוח מחדש",
+          tone: pendingMemberAction.cancel ? "danger" as const : "standard" as const,
+        };
+      case "delete_circle":
+        return {
+          title: "מחיקת המעגל",
+          message: `למחוק לצמיתות את המעגל „${pendingMemberAction.community.name}”? כל האירועים, החברים והמידע שבו יימחקו.`,
+          confirmLabel: "כן, למחוק את המעגל",
+          tone: "danger" as const,
+        };
+      case "delete_gallery":
+        return {
+          title: pendingMemberAction.photo.media_type === "video" ? "מחיקת סרטון" : "מחיקת תמונה",
+          message: pendingMemberAction.photo.media_type === "video"
+            ? "למחוק את הסרטון מהגלריה?"
+            : "למחוק את התמונה מהגלריה?",
+          confirmLabel: "כן, למחוק",
+          tone: "danger" as const,
+        };
+      default:
+        return {
+          title: "עזיבת המעגל",
+          message: `לעזוב את המעגל „${pendingMemberAction.community.name}”? החברות שלך במעגל תימחק ממסד הנתונים.`,
+          confirmLabel: "כן, לעזוב",
+          tone: "danger" as const,
+        };
+    }
+  })();
 
   return (
     <main className="app-page">
@@ -3376,6 +3978,48 @@ export default function Home() {
           </button>
 
           <div className="header-user">
+            <div className="notifications-menu-wrap">
+              <button
+                type="button"
+                className={`icon-button notification-bell-button${notificationsOpen ? " is-active" : ""}`}
+                onClick={() => setNotificationsOpen((current) => !current)}
+                aria-label="התראות"
+                title="התראות"
+              >
+                <span aria-hidden="true">🔔</span>
+                {unreadNotificationCount > 0 && (
+                  <span className="notification-count">{unreadNotificationCount}</span>
+                )}
+              </button>
+              {notificationsOpen && (
+                <div className="notifications-panel">
+                  <div className="notifications-panel-heading">
+                    <strong>התראות</strong>
+                    <button type="button" onClick={() => setNotificationsOpen(false)}>×</button>
+                  </div>
+                  {notificationsLoading ? (
+                    <div className="inline-loading"><span className="spinner spinner-small" />טוענים...</div>
+                  ) : notifications.length === 0 ? (
+                    <p className="notifications-empty">אין התראות חדשות.</p>
+                  ) : (
+                    <div className="notifications-list">
+                      {notifications.map((notification) => (
+                        <button
+                          type="button"
+                          className={`notification-item${notification.read_at ? " is-read" : ""}`}
+                          key={notification.id}
+                          onClick={() => void openNotification(notification)}
+                        >
+                          <strong>{notification.title}</strong>
+                          {notification.body && <span>{notification.body}</span>}
+                          <small>{formatShortDateTime(notification.created_at)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className={`icon-button profile-menu-button${profileScreenOpen ? " is-active" : ""}`}
@@ -3412,7 +4056,7 @@ export default function Home() {
           </div>
         </header>
 
-        {profileScreenOpen || communityFormOpen || eventFormOpen || selectedEvent ? null : selectedCommunity ? (
+        {profileScreenOpen || communityFormOpen || eventFormOpen || selectedEvent || shareEvent ? null : selectedCommunity ? (
           <section className="community-detail-card">
             <div className="community-detail-toolbar">
               <button
@@ -3423,7 +4067,7 @@ export default function Home() {
                   setBrowserView({});
                 }}
               >
-                חזרה למעגלים שלי
+                מעבר למעגלים שלי
               </button>
               <div className="community-toolbar-actions">
                 <button
@@ -3453,6 +4097,17 @@ export default function Home() {
                     עריכת המעגל
                   </button>
                 )}
+                {(selectedCommunity.role === "owner" || isSystemAdmin) && (
+                  <button
+                    type="button"
+                    className="danger-button compact-button"
+                    onClick={() =>
+                      setPendingMemberAction({ type: "delete_circle", community: selectedCommunity })
+                    }
+                  >
+                    מחיקת המעגל
+                  </button>
+                )}
               </div>
             </div>
 
@@ -3474,11 +4129,7 @@ export default function Home() {
             )}
             <div className="community-detail-heading">
               <div>
-                <p className="section-kicker">המעגל שלי</p>
                 <h1>{selectedCommunity.name}</h1>
-                <span className={`role-badge role-${selectedCommunity.role}`}>
-                  {roleLabel(selectedCommunity.role)}
-                </span>
               </div>
             </div>
 
@@ -3493,39 +4144,9 @@ export default function Home() {
               </p>
             )}
 
-            <div className="approval-summary">
-              <span aria-hidden="true">✓</span>
-              <div>
-                <strong>הצטרפות למעגל</strong>
-                <p>
-                  {selectedCommunity.requires_member_approval
-                    ? "כל משתמש חדש יצטרך אישור של מנהל המעגל."
-                    : "משתמשים יוכלו להצטרף ללא אישור מוקדם."}
-                </p>
-              </div>
-            </div>
-
-            {ownerMember && (
-              <div className="owner-card">
-                <ProfileAvatar
-                  imageUrl={ownerMember.avatar_url ?? ownerMember.google_avatar_url}
-                  name={ownerMember.full_name}
-                  size="small"
-                  onOpen={openImage}
-                />
-                <div>
-                  <span>בעל המעגל</span>
-                  <strong>{ownerMember.full_name}</strong>
-                  {ownerMember.city && <span className="member-city">{ownerMember.city}</span>}
-                  {ownerMember.phone && <PhoneLink phone={ownerMember.phone} />}
-                </div>
-              </div>
-            )}
-
             <section className="circle-people-section">
               <div className="circle-people-heading">
                 <div>
-                  <p className="section-kicker">אנשי המעגל</p>
                   <h2>חברי המעגל</h2>
                 </div>
                 <span className="people-count">{communityMembers.length}</span>
@@ -3549,7 +4170,7 @@ export default function Home() {
                       <div>
                         <strong>{member.full_name}</strong>
                         <span>{roleLabel(member.role)}</span>
-                        <span className="member-joined-at">הצטרף/ה למעגל: {formatShortDateTime(member.joined_at)}</span>
+                        <span className="member-joined-at">הצטרפות למעגל ב {formatJoinDateTime(member.joined_at)}</span>
                         {member.city && <span className="member-city">{member.city}</span>}
                         {member.phone && <PhoneLink phone={member.phone} />}
                       </div>
@@ -3570,7 +4191,7 @@ export default function Home() {
                               }
                               disabled={updatingRoleUserId === member.user_id}
                             >
-                              {member.role === "admin" ? "הפיכה לחבר" : "הפיכה למנהל"}
+                              {member.role === "admin" ? "הפיכה לחבר/ה" : "הפיכה למנהל/ת"}
                             </button>
                             {canRemoveCommunityMembers && (
                               <button
@@ -3639,7 +4260,6 @@ export default function Home() {
             <section className="circle-events-section">
               <div className="circle-events-heading">
                 <div>
-                  <p className="section-kicker">נפגשים יחד</p>
                   <h2>האירועים של המעגל</h2>
                 </div>
                 {canManageEvents && (
@@ -3676,7 +4296,7 @@ export default function Home() {
                       <div className="events-list">
                         {upcomingEvents.map((event) => (
                           <article
-                            className={`circle-event-card event-card-clickable${event.image_url ? "" : " circle-event-card-no-image"}`}
+                            className={`circle-event-card event-card-clickable${event.image_url ? "" : " circle-event-card-no-image"}${event.status === "cancelled" ? " event-card-cancelled" : ""}`}
                             key={event.id}
                             role="button"
                             tabIndex={0}
@@ -3706,28 +4326,13 @@ export default function Home() {
                               </button>
                             )}
                             <div className="event-card-copy">
-                              <h4>{event.title}</h4>
-                              <time dateTime={event.starts_at}>{formatEventDate(event.starts_at, event.ends_at)}</time>
+                              <h4 className="event-card-title-line">{event.title} {formatEventDate(event.starts_at, event.ends_at)}</h4>
+                              {event.status === "cancelled" && <span className="event-card-cancelled-badge">מבוטל</span>}
                               {event.location && <span className="event-location">{event.location}</span>}
                               {event.participant_limit !== null && (
                                 <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
                               )}
-                              {event.description && (
-                                <RichText text={event.description} className="event-description" />
-                              )}
                             </div>
-                            {canManageEvents && (
-                              <button
-                                type="button"
-                                className="secondary-button compact-button event-edit-button"
-                                onClick={(clickEvent) => {
-                                  clickEvent.stopPropagation();
-                                  openEditEvent(event);
-                                }}
-                              >
-                                עריכת האירוע
-                              </button>
-                            )}
                           </article>
                         ))}
                       </div>
@@ -3740,7 +4345,7 @@ export default function Home() {
                       <div className="events-list">
                         {pastEvents.map((event) => (
                           <article
-                            className={`circle-event-card event-card-clickable past-event-card${event.image_url ? "" : " circle-event-card-no-image"}`}
+                            className={`circle-event-card event-card-clickable past-event-card${event.image_url ? "" : " circle-event-card-no-image"}${event.status === "cancelled" ? " event-card-cancelled" : ""}`}
                             key={event.id}
                             role="button"
                             tabIndex={0}
@@ -3770,28 +4375,13 @@ export default function Home() {
                               </button>
                             )}
                             <div className="event-card-copy">
-                              <h4>{event.title}</h4>
-                              <time dateTime={event.starts_at}>{formatEventDate(event.starts_at, event.ends_at)}</time>
+                              <h4 className="event-card-title-line">{event.title} {formatEventDate(event.starts_at, event.ends_at)}</h4>
+                              {event.status === "cancelled" && <span className="event-card-cancelled-badge">מבוטל</span>}
                               {event.location && <span className="event-location">{event.location}</span>}
                               {event.participant_limit !== null && (
                                 <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
                               )}
-                              {event.description && (
-                                <RichText text={event.description} className="event-description" />
-                              )}
                             </div>
-                            {canManageEvents && (
-                              <button
-                                type="button"
-                                className="secondary-button compact-button event-edit-button"
-                                onClick={(clickEvent) => {
-                                  clickEvent.stopPropagation();
-                                  openEditEvent(event);
-                                }}
-                              >
-                                עריכת האירוע
-                              </button>
-                            )}
                           </article>
                         ))}
                       </div>
@@ -3808,7 +4398,6 @@ export default function Home() {
             <section className="communities-card">
               <div className="communities-heading">
                 <div>
-                  <p className="section-kicker">המעגלים שלי</p>
                   <h2>המעגלים שאליהם אני שייך</h2>
                   <p>צרו מעגל חדש או היכנסו למעגל שכבר יצרתם.</p>
                 </div>
@@ -4023,6 +4612,96 @@ export default function Home() {
                   </div>
                 </div>
               ) : null}
+
+              <section className="personal-dashboard-section">
+                <div className="section-heading-compact">
+                  <p className="section-kicker">הפעילות שלי</p>
+                  <h2>המעגלים והאירועים שלי</h2>
+                </div>
+                {personalLoading ? (
+                  <div className="inline-loading"><span className="spinner spinner-small" />טוענים...</div>
+                ) : (
+                  <div className="personal-dashboard-grid">
+                    <div className="personal-dashboard-block">
+                      <h3>המעגלים שלי</h3>
+                      {communities.length === 0 ? (
+                        <p>עדיין אין מעגלים.</p>
+                      ) : (
+                        <div className="personal-list">
+                          {communities.map((community) => (
+                            <button
+                              type="button"
+                              className="personal-list-item"
+                              key={community.id}
+                              onClick={() => {
+                                setProfileScreenOpen(false);
+                                setSelectedCommunityId(community.id);
+                                setBrowserView({ circleToken: community.share_token });
+                              }}
+                            >
+                              <strong>{community.name}</strong>
+                              <span>{roleLabel(community.role)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="personal-dashboard-block">
+                      <h3>האירועים שלי</h3>
+                      {personalEvents.length === 0 ? (
+                        <p>עדיין לא נרשמת לאירועים.</p>
+                      ) : (
+                        <div className="personal-list">
+                          {personalEvents.map((row) => (
+                            <button
+                              type="button"
+                              className="personal-list-item"
+                              key={row.event.id}
+                              onClick={() => void openPersonalEventRow(row)}
+                            >
+                              <strong>{row.event.title}</strong>
+                              <span>{row.community.name} · {formatShortDate(row.event.starts_at)}</span>
+                              {row.attendance && <small>{attendanceStatusLabel(row.attendance.status)}</small>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="personal-dashboard-block personal-commitments-block">
+                      <h3>דברים שהתחייבתי להביא</h3>
+                      {personalCommitments.length === 0 ? (
+                        <p>אין כרגע התחייבויות.</p>
+                      ) : (
+                        <div className="personal-list">
+                          {[...personalCommitments]
+                            .sort((first, second) => new Date(second.starts_at).getTime() - new Date(first.starts_at).getTime())
+                            .map((commitment) => (
+                              <button
+                                type="button"
+                                className="personal-list-item"
+                                key={commitment.id}
+                                onClick={() => {
+                                  const community = communities.find((item) => item.id === commitment.community_id);
+                                  if (!community) return;
+                                  setProfileScreenOpen(false);
+                                  setSelectedCommunityId(community.id);
+                                  setPendingEventOpenId(commitment.event_id);
+                                  setBrowserView({ eventToken: commitment.share_token });
+                                }}
+                              >
+                                <strong>{commitment.item_name} · {commitment.quantity}</strong>
+                                <span>{commitment.event_title} · {formatShortDate(commitment.starts_at)}</span>
+                                {commitment.note && <small>{commitment.note}</small>}
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
             </section>
         </div>
       )}
@@ -4128,7 +4807,7 @@ export default function Home() {
                 {inviteStatus === "pending" ? (
                   <div className="invite-result">
                     <strong>בקשת ההצטרפות נשלחה</strong>
-                    <p>בעל המעגל או אחד המנהלים יוכלו לאשר אותה.</p>
+                    <p>מנהלי המעגל יוכלו לאשר אותה.</p>
                     <button type="button" className="primary-button" onClick={closeInvite}>
                       סיום
                     </button>
@@ -4363,26 +5042,17 @@ export default function Home() {
       )}
 
       {shareEvent && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={() => setShareEvent(null)}
-        >
-          <section
-            className="modal-card share-modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="share-event-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="modal-close"
-              onClick={() => setShareEvent(null)}
-              aria-label="סגירה"
-            >
-              ×
-            </button>
+        <div className="edit-screen-shell">
+          <section className="editor-page-card share-screen-card" aria-labelledby="share-event-title">
+            <div className="editor-screen-toolbar">
+              <button
+                type="button"
+                className="back-button"
+                onClick={() => setShareEvent(null)}
+              >
+                חזרה לאירוע
+              </button>
+            </div>
 
             {eventShareImageUrl && (
               <button
@@ -4465,10 +5135,6 @@ export default function Home() {
                 <strong>אפשרויות נוספות</strong>
               </button>
             </div>
-
-            <p className="share-preview-note">
-              בשיתוף הקישור יוצגו שם האירוע, התיאור, הזמן, המיקום ותמונת האירוע.
-            </p>
           </section>
         </div>
       )}
@@ -4494,7 +5160,7 @@ export default function Home() {
             <p className="modal-intro">
               {editingCommunity
                 ? "אפשר לעדכן את אותם הפרטים שהוגדרו בעת יצירת המעגל."
-                : "לאחר השמירה תוגדרו אוטומטית כבעלי המעגל."}
+                : "לאחר השמירה תוגדרו אוטומטית כמנהלי המעגל."}
             </p>
 
             <div className="profile-form modal-form">
@@ -4578,7 +5244,7 @@ export default function Home() {
                     לא, אפשר להצטרף
                   </button>
                 </div>
-                <small>כאשר נדרש אישור, בעלים ומנהלים יוכלו לאשר או לדחות בקשות הצטרפות.</small>
+                <small>כאשר נדרש אישור, מנהלי המעגל יוכלו לאשר או לדחות בקשות הצטרפות.</small>
               </div>
             </div>
 
@@ -4610,12 +5276,12 @@ export default function Home() {
         </div>
       )}
 
-      {!profileScreenOpen && !communityFormOpen && !eventFormOpen && selectedEvent && selectedCommunity && (
+      {!profileScreenOpen && !communityFormOpen && !eventFormOpen && !shareEvent && selectedEvent && selectedCommunity && (
         <div className="event-screen-backdrop">
-          <section className="event-detail-panel" aria-labelledby="event-detail-title">
+          <section className={`event-detail-panel${selectedEventIsCancelled ? " event-is-cancelled" : ""}`} aria-labelledby="event-detail-title">
             <div className="event-detail-toolbar">
               <button type="button" className="back-button" onClick={closeEventDetails}>
-                חזרה לאירועים
+                מעבר למעגל
               </button>
               <div className="event-detail-actions">
                 <button
@@ -4626,13 +5292,35 @@ export default function Home() {
                   שיתוף
                 </button>
                 {canManageEvents && (
-                  <button
-                    type="button"
-                    className="primary-button compact-button"
-                    onClick={() => openEditEvent(selectedEvent)}
-                  >
-                    עריכת האירוע
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="primary-button compact-button"
+                      onClick={() => openEditEvent(selectedEvent)}
+                    >
+                      עריכת האירוע
+                    </button>
+                    <button
+                      type="button"
+                      className={selectedEventIsCancelled ? "secondary-button compact-button" : "danger-button compact-button"}
+                      onClick={() =>
+                        setPendingMemberAction({
+                          type: "cancel_event",
+                          event: selectedEvent,
+                          cancel: !selectedEventIsCancelled,
+                        })
+                      }
+                    >
+                      {selectedEventIsCancelled ? "פתיחת האירוע מחדש" : "ביטול האירוע"}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button compact-button"
+                      onClick={() => setPendingMemberAction({ type: "delete_event", event: selectedEvent })}
+                    >
+                      מחיקת האירוע
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -4665,6 +5353,12 @@ export default function Home() {
             <header className="event-detail-heading">
               <p className="section-kicker">אירוע במעגל {selectedCommunity.name}</p>
               <h1 id="event-detail-title">{getEventDisplayTitle(selectedEvent)}</h1>
+              {selectedEventIsCancelled && (
+                <div className="event-cancelled-banner">האירוע בוטל</div>
+              )}
+              {!selectedEventIsCancelled && selectedEventIsPast && (
+                <div className="event-closed-banner">האירוע הסתיים והוא סגור לשינויים</div>
+              )}
               {selectedEvent.location && (
                 <div className="event-location-row">
                   <span className="event-detail-location">{selectedEvent.location}</span>
@@ -4686,7 +5380,34 @@ export default function Home() {
             </header>
 
             {selectedEvent.description && (
-              <RichText text={selectedEvent.description} className="event-detail-description" />
+              <RichText
+                text={selectedEvent.description}
+                className={`event-detail-description${selectedEventIsCancelled ? " event-cancelled-description" : ""}`}
+              />
+            )}
+
+            {eventManagers.length > 0 && (
+              <section className="event-managers-section">
+                <div className="section-heading-compact">
+                  <h2>מנהלי/ות האירוע</h2>
+                </div>
+                <div className="event-managers-list">
+                  {eventManagers.map((manager) => (
+                    <article className="event-manager-card" key={manager.user_id}>
+                      <ProfileAvatar
+                        imageUrl={manager.avatar_url ?? manager.google_avatar_url}
+                        name={manager.full_name}
+                        size="small"
+                        onOpen={openImage}
+                      />
+                      <div>
+                        <strong>{manager.full_name}</strong>
+                        {manager.phone && <PhoneLink phone={manager.phone} />}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
             )}
 
             <section className="attendance-summary-section">
@@ -4729,7 +5450,7 @@ export default function Home() {
                   type="button"
                   className={`attendance-status-button${attendanceStatus === "going" ? " is-selected" : ""}`}
                   onClick={() => setAttendanceStatus("going")}
-                  disabled={savingAttendance}
+                  disabled={savingAttendance || eventLockedForCurrentUser || selectedEventIsFull}
                 >
                   מגיע/ה
                 </button>
@@ -4737,7 +5458,7 @@ export default function Home() {
                   type="button"
                   className={`attendance-status-button${attendanceStatus === "maybe" ? " is-selected" : ""}`}
                   onClick={() => setAttendanceStatus("maybe")}
-                  disabled={savingAttendance}
+                  disabled={savingAttendance || eventLockedForCurrentUser}
                 >
                   אולי
                 </button>
@@ -4745,11 +5466,17 @@ export default function Home() {
                   type="button"
                   className={`attendance-status-button${attendanceStatus === "not_going" ? " is-selected" : ""}`}
                   onClick={() => setAttendanceStatus("not_going")}
-                  disabled={savingAttendance}
+                  disabled={savingAttendance || eventLockedForCurrentUser}
                 >
                   לא מגיע/ה
                 </button>
               </div>
+              {selectedEventIsFull && (
+                <p className="event-full-message">האירוע מלא ולא ניתן להצטרף כרגע.</p>
+              )}
+              {eventLockedForCurrentUser && (
+                <p className="event-locked-message">האירוע סגור לשינויים.</p>
+              )}
 
               {attendanceStatus && attendanceStatus !== "not_going" && (
                 <div className="attendance-form-grid">
@@ -4761,7 +5488,7 @@ export default function Home() {
                       max="20"
                       value={attendancePartySize}
                       onChange={(event) => setAttendancePartySize(event.target.value)}
-                      disabled={savingAttendance}
+                      disabled={savingAttendance || eventLockedForCurrentUser}
                     />
                     <small>כולל אותך.</small>
                   </label>
@@ -4771,7 +5498,7 @@ export default function Home() {
                       type="text"
                       value={attendanceGuestNames}
                       onChange={(event) => setAttendanceGuestNames(event.target.value)}
-                      disabled={savingAttendance}
+                      disabled={savingAttendance || eventLockedForCurrentUser}
                       maxLength={300}
                       placeholder="לא חובה"
                     />
@@ -4785,7 +5512,7 @@ export default function Home() {
                   <textarea
                     value={attendanceNote}
                     onChange={(event) => setAttendanceNote(event.target.value)}
-                    disabled={savingAttendance}
+                    disabled={savingAttendance || eventLockedForCurrentUser}
                     maxLength={600}
                     rows={3}
                     placeholder="לא חובה"
@@ -4794,7 +5521,7 @@ export default function Home() {
               )}
 
               <div className="attendance-form-actions">
-                {ownEventAttendance && (
+                {ownEventAttendance && (!eventLockedForCurrentUser || canDeleteAnyEventAttendance) && (
                   <button
                     type="button"
                     className="member-remove-button attendance-delete-button"
@@ -4887,6 +5614,7 @@ export default function Home() {
                                         onChange={(event) =>
                                           scheduleNeedContributionSave(need, event.target.value)
                                         }
+                                        disabled={eventLockedForCurrentUser}
                                         aria-label={`כמה ${need.item_name} אני מביא`}
                                       />
                                     ) : (
@@ -4904,6 +5632,7 @@ export default function Home() {
                                       onChange={(event) =>
                                         scheduleNeedContributionSave(need, event.target.value)
                                       }
+                                      disabled={eventLockedForCurrentUser}
                                       aria-label={`כמה ${need.item_name} אני מביא`}
                                     />
                                   )}
@@ -4927,11 +5656,12 @@ export default function Home() {
                                             event.target.value,
                                           )
                                         }
+                                        disabled={eventLockedForCurrentUser}
                                         placeholder={`לדוגמה: ${need.item_name} פטריות בשמנת`}
                                       />
                                     ) : (
                                       <span className="bring-table-subrow bring-empty-cell" key={contribution.id}>
-                                        {contribution.note || "—"}
+                                        {contribution.note || ""}
                                       </span>
                                     ),
                                   )}
@@ -4969,6 +5699,7 @@ export default function Home() {
                                     onChange={(event) =>
                                       scheduleFreeContributionSave(contribution, event.target.value)
                                     }
+                                    disabled={eventLockedForCurrentUser}
                                     aria-label={`כמות ${contribution.item_name}`}
                                   />
                                 ) : (
@@ -4977,7 +5708,7 @@ export default function Home() {
                               </div>
                               <div className="bring-table-note" role="cell">
                                 <span className="bring-mobile-label">הערה</span>
-                                <span className="bring-empty-cell">{contribution.note || "—"}</span>
+                                <span className="bring-empty-cell">{contribution.note || ""}</span>
                               </div>
                             </div>
                           );
@@ -4991,6 +5722,7 @@ export default function Home() {
                       <p className="bring-free-intro">הרשימה חופשית. כל משתתף יכול להוסיף מה הוא מביא.</p>
                     )}
 
+                    {!eventLockedForCurrentUser && (
                     <div className="free-bring-add-row free-bring-autosave-add bring-table-add-row">
                       <label>
                         <span>
@@ -5032,6 +5764,7 @@ export default function Home() {
                         הוספה לטבלה
                       </button>
                     </div>
+                    )}
                   </>
                 )}
 
@@ -5073,6 +5806,11 @@ export default function Home() {
                               />
                               <div className="attendance-person-copy">
                                 <strong>{attendance.full_name}</strong>
+                                {(attendance.community_role === "owner" || attendance.community_role === "admin") && (
+                                  <span className="manager-badge">מנהל/ת</span>
+                                )}
+                                {attendance.city && <span className="attendance-city">{attendance.city}</span>}
+                                {attendance.phone && <PhoneLink phone={attendance.phone} />}
                                 <span>{attendanceStatusLabel(attendance.status)}</span>
                                 <span className="attendance-registered-at">נרשם/ה: {formatShortDateTime(attendance.created_at)}</span>
                                 {attendance.status !== "not_going" && attendance.party_size > 1 && (
@@ -5105,6 +5843,103 @@ export default function Home() {
                 </div>
               )}
             </section>
+
+            <section className="event-gallery-section">
+              <div className="section-heading-compact gallery-heading">
+                <div>
+                  <p className="section-kicker">זיכרונות מהאירוע</p>
+                  <h2>גלריית האירוע</h2>
+                  <small>{galleryImageCount}/{MAX_GALLERY_IMAGES} תמונות · {galleryVideoCount}/1 סרטון</small>
+                </div>
+                {galleryCanUpload && (
+                  <div className="gallery-upload-actions">
+                    <input
+                      ref={galleryImageInputRef}
+                      className="hidden-file-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (file) void uploadGalleryMedia(file, "image");
+                      }}
+                    />
+                    <input
+                      ref={galleryVideoInputRef}
+                      className="hidden-file-input"
+                      type="file"
+                      accept="video/mp4,video/webm,video/quicktime"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (file) void uploadGalleryMedia(file, "video");
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="primary-button compact-button"
+                      disabled={galleryBusy || galleryImageCount >= MAX_GALLERY_IMAGES}
+                      onClick={() => galleryImageInputRef.current?.click()}
+                    >
+                      הוספת תמונה
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button compact-button"
+                      disabled={galleryBusy || galleryVideoCount >= 1}
+                      onClick={() => galleryVideoInputRef.current?.click()}
+                    >
+                      הוספת סרטון
+                    </button>
+                  </div>
+                )}
+              </div>
+              {!galleryCanUpload && (
+                <p className="gallery-locked-note">
+                  רק מנהלי/ות המעגל יכולים להוסיף תמונות וסרטון לאחר שהאירוע התחיל.
+                </p>
+              )}
+              {galleryLoading ? (
+                <div className="inline-loading"><span className="spinner spinner-small" />טוענים את הגלריה...</div>
+              ) : galleryPhotos.length === 0 ? (
+                <p className="attendance-empty-state">עדיין אין קבצים בגלריה.</p>
+              ) : (
+                <div className="event-gallery-grid">
+                  {galleryPhotos.map((photo) => (
+                    <article className={`gallery-photo-card${photo.media_type === "video" ? " gallery-video-card" : ""}`} key={photo.id}>
+                      {photo.media_type === "video" ? (
+                        <video
+                          className="gallery-video"
+                          src={photo.image_url}
+                          controls
+                          preload="metadata"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="image-zoom-button gallery-photo-button"
+                          onClick={() => openImage(photo.image_url, `תמונה שהעלה/תה ${photo.full_name}`)}
+                        >
+                          <img src={photo.image_url} alt={`תמונה שהעלה/תה ${photo.full_name}`} />
+                        </button>
+                      )}
+                      <div className="gallery-photo-meta">
+                        <span>{photo.full_name}</span>
+                        {canDeleteAnyEventAttendance && (
+                          <button
+                            type="button"
+                            className="member-remove-button"
+                            onClick={() => setPendingMemberAction({ type: "delete_gallery", photo })}
+                          >
+                            מחיקה
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
           </section>
         </div>
       )}
@@ -5128,6 +5963,24 @@ export default function Home() {
             </h2>
 
             <div className="profile-form modal-form">
+              {!editingEvent && cloneableWholeEvents.length > 0 && (
+                <label className="clone-event-field">
+                  <select
+                    aria-label="שכפול מאירוע קיים"
+                    value={cloneEventId}
+                    onChange={(event) => void applyEventClone(event.target.value)}
+                  >
+                    <option value="">אירוע חדש ללא שכפול</option>
+                    {cloneableWholeEvents.map((event) => (
+                      <option value={event.id} key={event.id}>
+                        {event.title} · {formatShortDate(event.starts_at)}
+                      </option>
+                    ))}
+                  </select>
+                  <small>השכפול כולל את פרטי האירוע ואת טבלת האוכל שהוגדרה מראש בלבד.</small>
+                </label>
+              )}
+
               <div className="image-upload-field event-image-upload-field">
                 <input
                   ref={eventImageInputRef}

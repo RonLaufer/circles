@@ -15,6 +15,7 @@ type SharedEvent = {
   image_url: string | null;
   participant_limit: number | null;
   share_token: string;
+  status: "active" | "cancelled";
   community_name: string;
   community_logo_url: string | null;
   community_share_token: string;
@@ -90,10 +91,14 @@ export async function generateMetadata({
     : undefined;
 
   const browserTitle = `${event.title} ב ${formatSharedEventShortDate(event.starts_at)}`;
+  const sharedTitle = event.status === "cancelled" ? `${event.title} · מבוטל` : event.title;
+  const sharedDescription = event.status === "cancelled"
+    ? `האירוע בוטל. ${description}`
+    : description;
 
   return {
     title: browserTitle,
-    description,
+    description: sharedDescription,
     alternates: { canonical: url },
     applicationName: event.community_name,
     appleWebApp: {
@@ -106,15 +111,15 @@ export async function generateMetadata({
       type: "website",
       locale: "he_IL",
       siteName: "מעגלים",
-      title: event.title,
-      description,
+      title: sharedTitle,
+      description: sharedDescription,
       url,
       images,
     },
     twitter: {
       card: shareImageUrl ? "summary_large_image" : "summary",
-      title: event.title,
-      description,
+      title: sharedTitle,
+      description: sharedDescription,
       images: shareImageUrl ? [shareImageUrl] : undefined,
     },
   };
