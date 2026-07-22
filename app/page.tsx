@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.7.6";
+const APP_VERSION = "v1.0.7.7";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -54,6 +54,7 @@ type Community = {
   updated_at: string;
   share_token: string;
   role: CommunityRole;
+  is_member: boolean;
 };
 
 type SharedCommunity = {
@@ -635,6 +636,30 @@ function isSystemAdminEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
 }
 
+function canManageCommunity(
+  role: CommunityRole | null | undefined,
+  email: string | null | undefined,
+) {
+  return isSystemAdminEmail(email) || role === "owner" || role === "admin";
+}
+
+function canOwnCommunity(
+  community: Pick<Community, "role" | "created_by"> | null | undefined,
+  userId: string | null | undefined,
+  email: string | null | undefined,
+) {
+  return (
+    isSystemAdminEmail(email) ||
+    community?.role === "owner" ||
+    Boolean(community && userId && community.created_by === userId)
+  );
+}
+
+function communityRoleLabel(role: CommunityRole, email: string | null | undefined) {
+  if (isSystemAdminEmail(email)) return "מנהל המערכת";
+  return roleLabel(role);
+}
+
 function roleLabel(role: CommunityRole) {
   if (role === "owner" || role === "admin") return "מנהל/ת";
   return "חבר/ה";
@@ -905,6 +930,7 @@ export default function Home() {
       setCommunitiesLoading(true);
       setCommunitiesReady(false);
 
+      const systemAdmin = isSystemAdminEmail(currentUser.email);
       const { data: memberships, error: membershipsError } = await supabase
         .from("community_members")
         .select("community_id,role,joined_at")
@@ -919,25 +945,30 @@ export default function Home() {
         return;
       }
 
-      if (!memberships || memberships.length === 0) {
+      if (!systemAdmin && (!memberships || memberships.length === 0)) {
         setCommunities([]);
         setCommunitiesLoading(false);
         setCommunitiesReady(true);
         return;
       }
 
-      const communityIds = memberships.map((membership) => membership.community_id);
+      const communityIds = (memberships ?? []).map((membership) => membership.community_id);
       const roles = new Map(
-        memberships.map((membership) => [
+        (memberships ?? []).map((membership) => [
           membership.community_id,
           membership.role as CommunityRole,
         ]),
       );
 
-      const { data: communityRows, error: communitiesError } = await supabase
+      let communitiesQuery = supabase
         .from("communities")
-        .select("id,name,description,logo_url,video_url,requires_member_approval,created_by,created_at,updated_at,share_token")
-        .in("id", communityIds)
+        .select("id,name,description,logo_url,video_url,requires_member_approval,created_by,created_at,updated_at,share_token");
+
+      if (!systemAdmin) {
+        communitiesQuery = communitiesQuery.in("id", communityIds);
+      }
+
+      const { data: communityRows, error: communitiesError } = await communitiesQuery
         .order("created_at", { ascending: false });
 
       if (communitiesError) {
@@ -952,6 +983,7 @@ export default function Home() {
         (communityRows ?? []).map((community) => ({
           ...community,
           role: roles.get(community.id) ?? "member",
+          is_member: roles.has(community.id),
         })),
       );
       setCommunitiesLoading(false);
@@ -1016,7 +1048,7 @@ export default function Home() {
       });
       setCommunityMembers(mappedMembers);
 
-      if (role === "owner" || role === "admin") {
+      if (canManageCommunity(role, user?.email)) {
         const { data: requestRows, error: requestsError } = await supabase.rpc(
           "get_community_join_requests",
           { target_community_id: communityId },
@@ -1034,7 +1066,7 @@ export default function Home() {
 
       setPeopleLoading(false);
     },
-    [supabase],
+    [supabase, user?.email],
   );
 
   const loadCommunityEvents = useCallback(
@@ -1837,7 +1869,7 @@ export default function Home() {
     const targetCommunity = communities.find((community) => community.id === targetEvent?.community_id) ?? null;
     const isManager = Boolean(
       targetEvent && targetCommunity &&
-      (isSystemAdminEmail(user?.email) || targetCommunity.role === "owner" || targetCommunity.role === "admin"),
+      canManageCommunity(targetCommunity.role, user?.email),
     );
     const isLockedForMember = Boolean(
       targetEvent && !isManager &&
@@ -2232,10 +2264,7 @@ export default function Home() {
     );
     if (!currentCommunity || !user) return false;
 
-    const isSystemAdmin = isSystemAdminEmail(user.email);
-    const isCircleCreator = currentCommunity.created_by === user.id;
-
-    if (!isSystemAdmin && !isCircleCreator) {
+    if (!canOwnCommunity(currentCommunity, user.id, user.email)) {
       setMessageTone("error");
       setMessage("אין לך הרשאה להסיר חברים מהמעגל.");
       return false;
@@ -2735,7 +2764,11 @@ export default function Home() {
         return;
       }
 
-      const updatedCommunity: Community = { ...data, role: existingCommunity.role };
+      const updatedCommunity: Community = {
+        ...data,
+        role: existingCommunity.role,
+        is_member: existingCommunity.is_member,
+      };
       setCommunities((current) =>
         current.map((community) =>
           community.id === updatedCommunity.id ? updatedCommunity : community,
@@ -2839,7 +2872,7 @@ export default function Home() {
     }
 
     const createdCommunity: Community = data
-      ? { ...data, role: "owner" }
+      ? { ...data, role: "owner", is_member: true }
       : {
           id: communityId,
           name: cleanName,
@@ -2852,6 +2885,7 @@ export default function Home() {
           updated_at: createdAt,
           share_token: shareToken,
           role: "owner",
+          is_member: true,
         };
 
     setCommunities((current) => [createdCommunity, ...current]);
@@ -4241,24 +4275,22 @@ export default function Home() {
   const invitedMembership = invitedCommunity
     ? communities.find((community) => community.id === invitedCommunity.id) ?? null
     : null;
-  const isSystemAdmin = isSystemAdminEmail(user.email);
-  const canManageCommunityMembers = Boolean(
-    selectedCommunity &&
-      (isSystemAdmin || selectedCommunity.created_by === user.id),
+  const canManageCommunityMembers = canOwnCommunity(
+    selectedCommunity,
+    user.id,
+    user.email,
   );
   const canRemoveCommunityMembers = canManageCommunityMembers;
   const canLeaveSelectedCommunity = Boolean(
     selectedCommunity &&
+      selectedCommunity.is_member &&
       selectedCommunity.role !== "owner" &&
       selectedCommunity.created_by !== user.id,
   );
   const canManageEvents = Boolean(
-    selectedCommunity &&
-      (isSystemAdmin || selectedCommunity.role === "owner" || selectedCommunity.role === "admin"),
+    selectedCommunity && canManageCommunity(selectedCommunity.role, user.email),
   );
-  const canDeleteAnyEventAttendance = Boolean(
-    selectedEvent && (isSystemAdmin || canManageEvents),
-  );
+  const canDeleteAnyEventAttendance = Boolean(selectedEvent && canManageEvents);
   const selectedEventIsCancelled = selectedEvent?.status === "cancelled";
   const selectedEventIsPast = Boolean(
     selectedEvent && new Date(selectedEvent.starts_at).getTime() <= Date.now(),
@@ -4586,7 +4618,7 @@ export default function Home() {
                     עזיבת המעגל
                   </button>
                 )}
-                {selectedCommunity.role !== "member" && (
+                {canManageCommunity(selectedCommunity.role, user.email) && (
                   <button
                     type="button"
                     className="primary-button compact-button"
@@ -4791,7 +4823,7 @@ export default function Home() {
               )}
 
               {selectedCommunity.requires_member_approval &&
-                (selectedCommunity.role === "owner" || selectedCommunity.role === "admin") && (
+                canManageCommunity(selectedCommunity.role, user.email) && (
                 <div className="join-requests-area">
                   <div className="join-requests-heading">
                     <h3>בקשות הצטרפות</h3>
@@ -4967,7 +4999,7 @@ export default function Home() {
                         </span>
                       </span>
                       <span className={`role-badge role-${community.role}`}>
-                        {roleLabel(community.role)}
+                        {communityRoleLabel(community.role, user.email)}
                       </span>
                     </div>
                   ))}
@@ -5145,7 +5177,7 @@ export default function Home() {
                               }}
                             >
                               <strong>{community.name}</strong>
-                              <span>{roleLabel(community.role)}</span>
+                              <span>{communityRoleLabel(community.role, user.email)}</span>
                             </button>
                           ))}
                         </div>
@@ -5795,7 +5827,7 @@ export default function Home() {
               </button>
             </div>
 
-            {editingCommunity && (isSystemAdmin || editingCommunity.created_by === user.id) && (
+            {editingCommunity && canOwnCommunity(editingCommunity, user.id, user.email) && (
               <div className="event-management-actions" aria-label="ניהול המעגל">
                 <button
                   type="button"
