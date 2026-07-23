@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.8.8";
+const APP_VERSION = "v1.0.8.9";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -668,8 +668,8 @@ function attendanceStatusLabel(status: AttendanceStatus) {
   return "לא מגיע/ה";
 }
 
-function hideCommunityPlaceholder(community: Pick<Community, "name" | "logo_url">) {
-  return !community.logo_url && community.name.trim() === "בדיקה";
+function hideCommunityPlaceholder(community: Pick<Community, "logo_url">) {
+  return !getCommunityImageUrl(community.logo_url);
 }
 
 function getCommunityShareUrl(shareToken: string) {
@@ -1713,8 +1713,25 @@ export default function Home() {
 
     void loadNotifications();
     const timer = window.setInterval(() => void loadNotifications(), 30_000);
-    return () => window.clearInterval(timer);
-  }, [loadNotifications, user]);
+    const notificationsChannel = supabase
+      .channel(`notifications-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => void loadNotifications(),
+      )
+      .subscribe();
+
+    return () => {
+      window.clearInterval(timer);
+      void supabase.removeChannel(notificationsChannel);
+    };
+  }, [loadNotifications, supabase, user]);
 
   useEffect(() => {
     if (profileScreenOpen) void loadPersonalDashboard();
@@ -4109,6 +4126,12 @@ export default function Home() {
   const canManageEvents = Boolean(
     selectedCommunity && canManageCommunity(selectedCommunity.role, user.email),
   );
+  const visibleAttendanceGroups: Array<[string, EventAttendance[]]> = [
+    ["מגיעים", goingAttendance],
+    ["אולי", maybeAttendance],
+  ];
+  if (canManageEvents) visibleAttendanceGroups.push(["לא מגיעים", notGoingAttendance]);
+  const hasVisibleAttendance = visibleAttendanceGroups.some(([, rows]) => rows.length > 0);
   const canDeleteAnyEventAttendance = Boolean(selectedEvent && canManageEvents);
   const selectedEventIsCancelled = selectedEvent?.status === "cancelled";
   const selectedEventIsPast = Boolean(
@@ -4471,15 +4494,11 @@ export default function Home() {
               </div>
             </div>
 
-            {selectedCommunity.description ? (
+            {selectedCommunity.description && (
               <RichText
                 text={selectedCommunity.description}
                 className="community-detail-description"
               />
-            ) : (
-              <p className="community-detail-description">
-                עדיין לא נוסף תיאור למעגל.
-              </p>
             )}
 
 
@@ -4806,10 +4825,6 @@ export default function Home() {
                             alt={`תמונת המעגל ${community.name}`}
                           />
                         </button>
-                      ) : !hideCommunityPlaceholder(community) ? (
-                        <span className="community-emblem" aria-hidden="true">
-                          {community.name.trim().slice(0, 1)}
-                        </span>
                       ) : null}
                       <span className="community-card-copy">
                         <strong>{community.name}</strong>
@@ -6012,15 +6027,11 @@ export default function Home() {
                   <span className="spinner spinner-small" />
                   טוענים משתתפים...
                 </div>
-              ) : eventAttendance.length === 0 ? (
+              ) : !hasVisibleAttendance ? (
                 <p className="attendance-empty-state">עדיין אין תשובות לאירוע.</p>
               ) : (
                 <div className="attendance-groups">
-                  {([
-                    ["מגיעים", goingAttendance],
-                    ["אולי", maybeAttendance],
-                    ["לא מגיעים", notGoingAttendance],
-                  ] as const).map(([title, rows]) =>
+                  {visibleAttendanceGroups.map(([title, rows]) =>
                     rows.length > 0 ? (
                       <div className="attendance-group" key={title}>
                         <h3>{title}</h3>
