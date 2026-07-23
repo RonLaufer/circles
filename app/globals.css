@@ -5314,3 +5314,146 @@ body.editor-screen-open {
     text-align: start;
   }
 }
+
+.community-card-copy > .community-managers-line {
+  color: var(--text);
+  font-weight: 700;
+  -webkit-line-clamp: 2;
+}
+
+/* Phase 93: active users shared across the current user's circles */
+.header-brand-and-presence {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.active-circle-users {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 330px;
+  overflow-x: auto;
+  padding: 4px 2px;
+  scrollbar-width: thin;
+}
+
+.active-circle-user-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--amber-soft);
+  box-shadow: 0 0 0 1px var(--line), 0 2px 5px rgba(15, 23, 42, 0.12);
+  cursor: pointer;
+}
+
+.active-circle-user-button img,
+.active-circle-user-button span {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  font-weight: 800;
+}
+
+.active-user-dialog {
+  width: min(92vw, 430px);
+  max-height: 86svh;
+  overflow-y: auto;
+  position: relative;
+  padding: 28px;
+  border-radius: 24px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.28);
+}
+
+.active-user-dialog .profile-avatar-large,
+.active-user-dialog .avatar-zoom-large {
+  margin-inline: auto;
+}
+
+.active-user-dialog h2 {
+  margin: 14px 0 4px;
+}
+
+.active-user-dialog-label {
+  margin: 16px 0 8px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.active-user-community-list {
+  display: grid;
+  gap: 8px;
+  text-align: right;
+}
+
+.active-user-community-list > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft, #f8fafc);
+}
+
+.active-user-community-list span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.active-circle-users-mobile {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .app-header {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+  }
+
+  .header-brand-and-presence {
+    width: auto;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+
+  .header-brand-and-presence .brand-button {
+    width: auto;
+    justify-content: flex-start;
+  }
+
+  .active-circle-users-desktop {
+    display: none;
+  }
+
+  .active-circle-users-mobile {
+    display: flex;
+    order: 3;
+    width: 100%;
+    max-width: none;
+    padding: 3px 1px 1px;
+  }
+
+  .active-circle-user-button {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+  }
+
+  .header-user {
+    flex: 0 0 auto;
+    margin-inline-start: 0;
+  }
+}

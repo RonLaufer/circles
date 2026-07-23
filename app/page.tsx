@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.8.9";
+const APP_VERSION = "v1.0.9.5";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -55,6 +55,7 @@ type Community = {
   share_token: string;
   role: CommunityRole;
   is_member: boolean;
+  manager_names: string[];
 };
 
 type SharedCommunity = {
@@ -102,6 +103,21 @@ type CommunityJoinRequest = {
   avatar_url: string | null;
   google_avatar_url: string | null;
   requested_at: string;
+};
+
+type ActiveCircleMembership = {
+  community_id: string;
+  community_name: string;
+  joined_at: string;
+};
+
+type ActiveCircleUser = {
+  user_id: string;
+  full_name: string;
+  avatar_url: string | null;
+  google_avatar_url: string | null;
+  last_active_at: string;
+  memberships: ActiveCircleMembership[];
 };
 
 type CommunityEvent = {
@@ -441,6 +457,10 @@ function LegalScreen({
 
 function getCommunityImageUrl(logoUrl: string | null) {
   return logoUrl ?? "";
+}
+
+function getProfileImageUrl(avatarUrl: string | null, googleAvatarUrl: string | null) {
+  return avatarUrl || googleAvatarUrl || null;
 }
 
 function formatSupabaseError(error: unknown) {
@@ -869,12 +889,15 @@ export default function Home() {
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState<string | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<PendingMemberAction | null>(null);
   const [memberActionBusy, setMemberActionBusy] = useState(false);
+  const [systemAdminJoinBusy, setSystemAdminJoinBusy] = useState(false);
   const [shareCommunity, setShareCommunity] = useState<Community | null>(null);
   const [shareEvent, setShareEvent] = useState<CommunityEvent | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [activeCircleUsers, setActiveCircleUsers] = useState<ActiveCircleUser[]>([]);
+  const [selectedActiveUser, setSelectedActiveUser] = useState<ActiveCircleUser | null>(null);
   const [galleryPhotos, setGalleryPhotos] = useState<EventGalleryPhoto[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
@@ -905,6 +928,54 @@ export default function Home() {
     profile?: boolean;
   } | null>(null);
   const directNavigationPreparedRef = useRef(false);
+
+  const refreshActiveCircleUsers = useCallback(async () => {
+    if (!user) return;
+
+    const { error: heartbeatError } = await supabase.rpc("touch_user_presence");
+    if (heartbeatError) {
+      console.error("Updating presence failed", heartbeatError);
+    }
+
+    const { data, error } = await supabase.rpc("get_active_circle_members");
+    if (error) {
+      console.error("Loading active circle members failed", error);
+      return;
+    }
+
+    const grouped = new Map<string, ActiveCircleUser>();
+    for (const row of data ?? []) {
+      const membership: ActiveCircleMembership = {
+        community_id: row.community_id,
+        community_name: row.community_name,
+        joined_at: row.joined_at,
+      };
+      const existing = grouped.get(row.user_id);
+      if (existing) {
+        existing.memberships.push(membership);
+      } else {
+        grouped.set(row.user_id, {
+          user_id: row.user_id,
+          full_name: row.full_name || "משתמש",
+          avatar_url: row.avatar_url ?? null,
+          google_avatar_url: row.google_avatar_url ?? null,
+          last_active_at: row.last_active_at,
+          memberships: [membership],
+        });
+      }
+    }
+
+    const users = Array.from(grouped.values()).map((activeUser) => ({
+      ...activeUser,
+      memberships: activeUser.memberships.sort(
+        (first, second) => new Date(second.joined_at).getTime() - new Date(first.joined_at).getTime(),
+      ),
+    }));
+    users.sort((first, second) =>
+      new Date(second.last_active_at).getTime() - new Date(first.last_active_at).getTime(),
+    );
+    setActiveCircleUsers(users);
+  }, [supabase, user]);
 
   const clearSelectedImage = useCallback((image: SelectedImage | null) => {
     if (image?.previewUrl) URL.revokeObjectURL(image.previewUrl);
@@ -968,11 +1039,52 @@ export default function Home() {
         return;
       }
 
+      const loadedCommunityIds = (communityRows ?? []).map((community) => community.id);
+      const { data: managerMembershipRows, error: managerMembershipError } = loadedCommunityIds.length
+        ? await supabase
+            .from("community_members")
+            .select("community_id,user_id,role")
+            .in("community_id", loadedCommunityIds)
+            .in("role", ["owner", "admin"])
+        : { data: [], error: null };
+
+      if (managerMembershipError) {
+        console.error("Loading circle managers failed", managerMembershipError);
+      }
+
+      const managerUserIds = Array.from(
+        new Set((managerMembershipRows ?? []).map((membership) => membership.user_id)),
+      );
+      const { data: managerProfiles, error: managerProfilesError } = managerUserIds.length
+        ? await supabase
+            .from("profiles")
+            .select("id,full_name")
+            .in("id", managerUserIds)
+        : { data: [], error: null };
+
+      if (managerProfilesError) {
+        console.error("Loading circle manager profiles failed", managerProfilesError);
+      }
+
+      const managerNamesByUserId = new Map(
+        (managerProfiles ?? []).map((managerProfile) => [managerProfile.id, managerProfile.full_name]),
+      );
+      const managerNamesByCommunityId = new Map<string, string[]>();
+
+      for (const membership of managerMembershipRows ?? []) {
+        const managerName = managerNamesByUserId.get(membership.user_id);
+        if (!managerName) continue;
+        const currentNames = managerNamesByCommunityId.get(membership.community_id) ?? [];
+        if (!currentNames.includes(managerName)) currentNames.push(managerName);
+        managerNamesByCommunityId.set(membership.community_id, currentNames);
+      }
+
       setCommunities(
         (communityRows ?? []).map((community) => ({
           ...community,
           role: roles.get(community.id) ?? "member",
           is_member: roles.has(community.id),
+          manager_names: managerNamesByCommunityId.get(community.id) ?? [],
         })),
       );
       setCommunitiesLoading(false);
@@ -1666,6 +1778,20 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, [loadCommunities, loadProfile, loadSharedEvent, loadSharedInvite, supabase]);
 
+  useEffect(() => {
+    if (!user || !profile) {
+      setActiveCircleUsers([]);
+      return;
+    }
+
+    void refreshActiveCircleUsers();
+    const intervalId = window.setInterval(() => {
+      void refreshActiveCircleUsers();
+    }, 30_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [profile, refreshActiveCircleUsers, user]);
+
   const activePageKey = !user
     ? "login"
     : legalScreenOpen
@@ -2228,6 +2354,59 @@ export default function Home() {
         : `הצטרפתם למעגל „${invitedCommunity.name}”.`,
     );
     setJoinBusy(false);
+  }
+
+  async function joinSystemAdminToCommunity() {
+    const currentCommunity = communities.find(
+      (community) => community.id === selectedCommunityId,
+    );
+
+    if (
+      !user ||
+      !currentCommunity ||
+      !isSystemAdminEmail(user.email) ||
+      currentCommunity.is_member ||
+      systemAdminJoinBusy
+    ) {
+      return;
+    }
+
+    setSystemAdminJoinBusy(true);
+    setMessage(null);
+
+    const profileError = await ensureProfileBeforeJoining(user);
+    if (profileError) {
+      setMessageTone("error");
+      setMessage(`לא הצלחנו להכין את הפרופיל לצירוף למעגל. ${profileError}`);
+      setSystemAdminJoinBusy(false);
+      return;
+    }
+
+    const { error } = await supabase.from("community_members").insert({
+      community_id: currentCommunity.id,
+      user_id: user.id,
+      role: "member",
+    });
+
+    if (error && error.code !== "23505") {
+      console.error("Joining system admin to circle failed", error);
+      setMessageTone("error");
+      setMessage(`לא הצלחנו לצרף את רון לאופר למעגל. ${formatSupabaseError(error)}`);
+      setSystemAdminJoinBusy(false);
+      return;
+    }
+
+    setCommunities((current) =>
+      current.map((community) =>
+        community.id === currentCommunity.id
+          ? { ...community, role: "member", is_member: true }
+          : community,
+      ),
+    );
+    await loadCommunityPeople(currentCommunity.id, "member");
+    setMessageTone("success");
+    setMessage(`רון לאופר צורף כחבר למעגל „${currentCommunity.name}”.`);
+    setSystemAdminJoinBusy(false);
   }
 
   async function reviewJoinRequest(
@@ -4297,27 +4476,55 @@ export default function Home() {
     <main className="app-page">
       <div className="app-container">
         <header className="app-header">
-          <button
-            type="button"
-            className="brand-button"
-            onClick={() => {
-              setProfileScreenOpen(false);
-              setCommunityFormOpen(false);
-              setEventFormOpen(false);
-              setSelectedEventId(null);
-              setSelectedCommunityId(null);
-              setBrowserView({});
-            }}
-            aria-label="מעבר למסך הראשי"
-          >
-            <span className="brand-lockup brand-lockup-small">
-              <CirclesMark />
-              <span>
-                <span className="brand-name">מעגלים</span>
-                <span className="app-version">{APP_VERSION}</span>
+          <div className="header-brand-and-presence">
+            <button
+              type="button"
+              className="brand-button"
+              onClick={() => {
+                setProfileScreenOpen(false);
+                setCommunityFormOpen(false);
+                setEventFormOpen(false);
+                setSelectedEventId(null);
+                setSelectedCommunityId(null);
+                setBrowserView({});
+              }}
+              aria-label="מעבר למסך הראשי"
+            >
+              <span className="brand-lockup brand-lockup-small">
+                <CirclesMark />
+                <span>
+                  <span className="brand-name">מעגלים</span>
+                  <span className="app-version">{APP_VERSION}</span>
+                </span>
               </span>
-            </span>
-          </button>
+            </button>
+            {activeCircleUsers.length > 0 && (
+              <div
+                className="active-circle-users active-circle-users-desktop"
+                aria-label="חברים פעילים במעגלים שלי"
+              >
+                {activeCircleUsers.map((activeUser) => {
+                  const imageUrl = getProfileImageUrl(activeUser.avatar_url, activeUser.google_avatar_url);
+                  return (
+                    <button
+                      type="button"
+                      className="active-circle-user-button"
+                      key={activeUser.user_id}
+                      onClick={() => setSelectedActiveUser(activeUser)}
+                      title={activeUser.full_name}
+                      aria-label={`פרטים על ${activeUser.full_name}`}
+                    >
+                      {imageUrl ? (
+                        <img src={imageUrl} alt={activeUser.full_name} />
+                      ) : (
+                        <span>{activeUser.full_name.trim().charAt(0) || "?"}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="header-user">
             <div className="notifications-menu-wrap">
@@ -4426,6 +4633,33 @@ export default function Home() {
               ↪
             </button>
           </div>
+
+          {activeCircleUsers.length > 0 && (
+            <div
+              className="active-circle-users active-circle-users-mobile"
+              aria-label="חברים פעילים במעגלים שלי"
+            >
+              {activeCircleUsers.map((activeUser) => {
+                const imageUrl = getProfileImageUrl(activeUser.avatar_url, activeUser.google_avatar_url);
+                return (
+                  <button
+                    type="button"
+                    className="active-circle-user-button"
+                    key={activeUser.user_id}
+                    onClick={() => setSelectedActiveUser(activeUser)}
+                    title={activeUser.full_name}
+                    aria-label={`פרטים על ${activeUser.full_name}`}
+                  >
+                    {imageUrl ? (
+                      <img src={imageUrl} alt={activeUser.full_name} />
+                    ) : (
+                      <span>{activeUser.full_name.trim().charAt(0) || "?"}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </header>
 
         {profileScreenOpen || communityFormOpen || eventFormOpen || selectedEvent || shareEvent ? null : selectedCommunity ? (
@@ -4759,6 +4993,21 @@ export default function Home() {
             )}
 
             {message && <p className={`message-box ${messageTone}`}>{message}</p>}
+
+            {isSystemAdminEmail(user.email) && !selectedCommunity.is_member && (
+              <div className="event-management-actions" aria-label="צירוף למעגל">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void joinSystemAdminToCommunity()}
+                  disabled={systemAdminJoinBusy}
+                >
+                  {systemAdminJoinBusy
+                    ? "מצרף את רון לאופר..."
+                    : "צירוף רון לאופר למעגל"}
+                </button>
+              </div>
+            )}
           </section>
         ) : (
           <>
@@ -4828,12 +5077,10 @@ export default function Home() {
                       ) : null}
                       <span className="community-card-copy">
                         <strong>{community.name}</strong>
-                        <span>
-                          {community.description || "אין עדיין תיאור למעגל"}
+                        {community.description && <span>{community.description}</span>}
+                        <span className="community-managers-line">
+                          ניהול ע"י {community.manager_names.length > 0 ? community.manager_names.join(", ") : "לא הוגדרו"}
                         </span>
-                      </span>
-                      <span className={`role-badge role-${community.role}`}>
-                        {communityRoleLabel(community.role, user.email)}
                       </span>
                     </div>
                   ))}
@@ -6172,6 +6419,21 @@ export default function Home() {
                 </div>
               )}
             </section>
+
+            {isSystemAdminEmail(user.email) && !selectedCommunity.is_member && (
+              <div className="event-management-actions" aria-label="צירוף למעגל">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void joinSystemAdminToCommunity()}
+                  disabled={systemAdminJoinBusy}
+                >
+                  {systemAdminJoinBusy
+                    ? "מצרף את רון לאופר..."
+                    : "צירוף רון לאופר למעגל"}
+                </button>
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -6483,6 +6745,43 @@ export default function Home() {
       )}
 
       </div>
+
+      {selectedActiveUser && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setSelectedActiveUser(null)}>
+          <section
+            className="active-user-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`פרטי ${selectedActiveUser.full_name}`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="dialog-close-button"
+              onClick={() => setSelectedActiveUser(null)}
+              aria-label="סגירה"
+            >
+              ×
+            </button>
+            <ProfileAvatar
+              imageUrl={getProfileImageUrl(selectedActiveUser.avatar_url, selectedActiveUser.google_avatar_url)}
+              name={selectedActiveUser.full_name}
+              size="large"
+              onOpen={openImage}
+            />
+            <h2>{selectedActiveUser.full_name}</h2>
+            <p className="active-user-dialog-label">מעגלים משותפים:</p>
+            <div className="active-user-community-list">
+              {selectedActiveUser.memberships.map((membership) => (
+                <div key={membership.community_id}>
+                  <strong>{membership.community_name}</strong>
+                  <span>הצטרפות: {formatShortDateTime(membership.joined_at)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
 
       {lightbox && (
         <div
