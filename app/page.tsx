@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.8.7";
+const APP_VERSION = "v1.0.8.8";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -5753,22 +5753,9 @@ export default function Home() {
 
             <section className="attendance-summary-section">
               <div className="section-heading-compact">
-                <p className="section-kicker">תמונת מצב לכולם</p>
                 <h2>סיכום השתתפות</h2>
               </div>
               <div className="attendance-summary-grid">
-                <div className="attendance-summary-card">
-                  <strong>{goingAttendance.length}</strong>
-                  <span>אישרו הגעה</span>
-                </div>
-                <div className="attendance-summary-card">
-                  <strong>{maybeAttendance.length}</strong>
-                  <span>אולי</span>
-                </div>
-                <div className="attendance-summary-card">
-                  <strong>{notGoingAttendance.length}</strong>
-                  <span>לא מגיעים</span>
-                </div>
                 <div className="attendance-summary-card attendance-summary-total">
                   <strong>{totalGoingPeople}</strong>
                   <span>
@@ -5776,6 +5763,10 @@ export default function Home() {
                       ? `סה"כ מגיעים מתוך ${selectedEvent.participant_limit}`
                       : 'סה"כ מגיעים'}
                   </span>
+                </div>
+                <div className="attendance-summary-card">
+                  <strong>{maybeAttendance.length}</strong>
+                  <span>אולי</span>
                 </div>
               </div>
             </section>
@@ -5982,10 +5973,6 @@ export default function Home() {
                       <p className="attendance-empty-state">עדיין לא נוספו פריטים לרשימה.</p>
                     )}
 
-                    {selectedEvent.bring_mode === "free" && (
-                      <p className="bring-free-intro">הרשימה חופשית. כל משתתף יכול להוסיף מה הוא מביא.</p>
-                    )}
-
                     {!eventLockedForCurrentUser && (
                       <div className="free-bring-add-row free-bring-autosave-add bring-table-add-row">
                         <label>
@@ -6020,11 +6007,6 @@ export default function Home() {
             )}
 
             <section className="event-attendees-section">
-              <div className="section-heading-compact">
-                <p className="section-kicker">האנשים באירוע</p>
-                <h2>מי משתתף?</h2>
-              </div>
-
               {attendanceLoading ? (
                 <div className="inline-loading">
                   <span className="spinner spinner-small" />
