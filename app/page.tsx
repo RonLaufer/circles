@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.9.5";
+const APP_VERSION = "v1.0.9.6";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -2952,6 +2952,7 @@ export default function Home() {
         ...data,
         role: existingCommunity.role,
         is_member: existingCommunity.is_member,
+        manager_names: existingCommunity.manager_names,
       };
       setCommunities((current) =>
         current.map((community) =>
@@ -3056,7 +3057,7 @@ export default function Home() {
     }
 
     const createdCommunity: Community = data
-      ? { ...data, role: "owner", is_member: true }
+      ? { ...data, role: "owner", is_member: true, manager_names: [profile?.full_name || user.email || ""] }
       : {
           id: communityId,
           name: cleanName,
@@ -3070,6 +3071,7 @@ export default function Home() {
           share_token: shareToken,
           role: "owner",
           is_member: true,
+          manager_names: [profile?.full_name || user.email || ""],
         };
 
     setCommunities((current) => [createdCommunity, ...current]);
