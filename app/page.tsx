@@ -26,7 +26,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.2.7";
+const APP_VERSION = "v1.1.2.8";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -798,10 +798,44 @@ function ProfileAvatar({
 }
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"]);
+const HEIC_IMAGE_EXTENSIONS = new Set(["heic", "heif"]);
+const HEIC_IMAGE_MIME_TYPES = new Set([
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
+]);
+
+function getFileExtension(file: File) {
+  return file.name.split(".").pop()?.trim().toLowerCase() ?? "";
+}
+
+function isHeicImageFile(file: File) {
+  return HEIC_IMAGE_EXTENSIONS.has(getFileExtension(file)) || HEIC_IMAGE_MIME_TYPES.has(file.type.toLowerCase());
+}
 
 function isSupportedImageFile(file: File) {
-  const extension = file.name.split(".").pop()?.trim().toLowerCase() ?? "";
-  return file.type.startsWith("image/") || SUPPORTED_IMAGE_EXTENSIONS.has(extension);
+  return file.type.startsWith("image/") || SUPPORTED_IMAGE_EXTENSIONS.has(getFileExtension(file));
+}
+
+async function convertHeicToJpeg(file: File): Promise<Blob> {
+  try {
+    const module = await import("heic2any");
+    const result = await module.default({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+    const converted = Array.isArray(result) ? result[0] : result;
+    if (!(converted instanceof Blob) || converted.size === 0) {
+      throw new Error("heic_conversion_failed");
+    }
+    return converted.type === "image/jpeg"
+      ? converted
+      : new Blob([converted], { type: "image/jpeg" });
+  } catch {
+    throw new Error("heic_conversion_failed");
+  }
 }
 
 function loadImage(sourceUrl: string) {
@@ -820,7 +854,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
         if (blob) resolve(blob);
         else reject(new Error("image_compression_failed"));
       },
-      "image/webp",
+      "image/jpeg",
       quality,
     );
   });
@@ -831,8 +865,9 @@ async function compressImage(file: File, maxOutputBytes = DEFAULT_IMAGE_MAX_BYTE
     throw new Error("not_an_image");
   }
 
-  const sourceUrl = URL.createObjectURL(file);
-  let lastCompressedSize = file.size;
+  const sourceBlob = isHeicImageFile(file) ? await convertHeicToJpeg(file) : file;
+  const sourceUrl = URL.createObjectURL(sourceBlob);
+  let lastCompressedSize = sourceBlob.size;
 
   try {
     const image = await loadImage(sourceUrl);
@@ -3132,7 +3167,9 @@ export default function Home() {
       setMessage(
         error instanceof CompressedImageTooLargeError
           ? formatCompressedImageTooLarge(error)
-          : "לא הצלחנו לקרוא את התמונה. אם זה קובץ HEIC/HEIF, נסו לפתוח ולשמור אותו כתמונה רגילה או לבחור קובץ אחר.",
+          : error instanceof Error && error.message === "heic_conversion_failed"
+            ? "לא הצלחנו להמיר את קובץ ה־HEIC/HEIF לתמונה רגילה. נסו לבחור את הקובץ שוב או לבחור תמונה אחרת."
+            : "לא הצלחנו לקרוא את התמונה. נסו לבחור קובץ תמונה אחר.",
       );
     }
   }
@@ -3143,7 +3180,7 @@ export default function Home() {
     }
 
     const { error } = await supabase.storage.from(bucket).upload(path, blob, {
-      contentType: "image/webp",
+      contentType: blob.type || "image/jpeg",
       cacheControl: "3600",
       upsert: true,
     });
@@ -3235,7 +3272,7 @@ export default function Home() {
       try {
         avatarUrl = await uploadPublicImage(
           "profile-images",
-          `${user.id}/avatar.webp`,
+          `${user.id}/avatar.jpg`,
           profileImage.blob,
         );
       } catch (error) {
@@ -3358,7 +3395,7 @@ export default function Home() {
         try {
           logoUrl = await uploadPublicImage(
             "community-images",
-            `${existingCommunity.id}/cover.webp`,
+            `${existingCommunity.id}/cover.jpg`,
             communityImage.blob,
           );
         } catch (error) {
@@ -3475,7 +3512,7 @@ export default function Home() {
       try {
         uploadedLogoUrl = await uploadPublicImage(
           "community-images",
-          `${communityId}/cover.webp`,
+          `${communityId}/cover.jpg`,
           communityImage.blob,
         );
 
@@ -4176,12 +4213,14 @@ export default function Home() {
     try {
       const mediaId = crypto.randomUUID();
       let mediaBlob: Blob = file;
-      let extension = "webp";
-      let contentType = "image/webp";
+      let extension = "jpg";
+      let contentType = "image/jpeg";
 
       if (mediaType === "image") {
         const compressed = await compressImage(file, galleryImageMaxBytes);
         mediaBlob = compressed.blob;
+        contentType = compressed.blob.type || "image/jpeg";
+        extension = contentType === "image/png" ? "png" : "jpg";
         URL.revokeObjectURL(compressed.previewUrl);
       } else {
         if (!isSupportedVideoFile(file)) {
@@ -4258,8 +4297,10 @@ export default function Home() {
         text = `אפשר להעלות עד ${galleryImageLimit} תמונות לגלריה.`;
       } else if (formatted.includes("gallery_video_limit_reached")) {
         text = `אפשר להעלות עד ${galleryVideoLimit} סרטונים לגלריה.`;
+      } else if (mediaType === "image" && error instanceof Error && error.message === "heic_conversion_failed") {
+        text = "לא הצלחנו להמיר את קובץ ה־HEIC/HEIF לתמונה רגילה. נסו לבחור את הקובץ שוב או לבחור תמונה אחרת.";
       } else if (mediaType === "image" && error instanceof Error && error.message === "image_decode_failed") {
-        text = "לא הצלחנו לקרוא את התמונה. אם זה קובץ HEIC/HEIF, נסו לפתוח ולשמור אותו כתמונה רגילה או לבחור קובץ אחר.";
+        text = "לא הצלחנו לקרוא את התמונה. נסו לבחור קובץ תמונה אחר.";
       } else {
         text = `העלאת הקובץ לגלריה נכשלה. ${formatted}`;
       }
@@ -4646,7 +4687,7 @@ export default function Home() {
         try {
           imageUrl = await uploadPublicImage(
             "event-images",
-            `${selectedCommunity.id}/${existingEvent.id}/cover.webp`,
+            `${selectedCommunity.id}/${existingEvent.id}/cover.jpg`,
             eventImage.blob,
           );
         } catch (error) {
@@ -4751,7 +4792,7 @@ export default function Home() {
       try {
         const imageUrl = await uploadPublicImage(
           "event-images",
-          `${selectedCommunity.id}/${eventId}/cover.webp`,
+          `${selectedCommunity.id}/${eventId}/cover.jpg`,
           eventImage.blob,
         );
 
