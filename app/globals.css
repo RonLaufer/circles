@@ -595,8 +595,8 @@ button:disabled {
   }
 
   .profile-avatar-small {
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
   }
 
   .icon-button {
@@ -5455,6 +5455,7 @@ body.editor-screen-open {
   .header-user {
     flex: 0 0 auto;
     margin-inline-start: 0;
+    gap: 8px;
   }
 }
 
