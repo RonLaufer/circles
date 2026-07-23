@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.8.5";
+const APP_VERSION = "v1.0.8.7";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -130,9 +130,6 @@ type EventAttendance = {
   event_id: string;
   user_id: string;
   status: AttendanceStatus;
-  party_size: number;
-  guest_names: string;
-  note: string;
   created_at: string;
   updated_at: string;
   full_name: string;
@@ -841,9 +838,6 @@ export default function Home() {
   const [eventAttendance, setEventAttendance] = useState<EventAttendance[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<AttendanceStatus | null>(null);
-  const [attendancePartySize, setAttendancePartySize] = useState("1");
-  const [attendanceGuestNames, setAttendanceGuestNames] = useState("");
-  const [attendanceNote, setAttendanceNote] = useState("");
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [attendanceMessage, setAttendanceMessage] = useState<string | null>(null);
   const [attendanceMessageTone, setAttendanceMessageTone] = useState<"error" | "success">("error");
@@ -1101,7 +1095,7 @@ export default function Home() {
 
       const { data: attendanceRows, error: attendanceError } = await supabase
         .from("event_attendance")
-        .select("event_id,user_id,status,party_size,guest_names,note,created_at,updated_at")
+        .select("event_id,user_id,status,created_at,updated_at")
         .eq("event_id", eventId)
         .order("updated_at", { ascending: true });
 
@@ -1162,9 +1156,6 @@ export default function Home() {
         : null;
 
       setAttendanceStatus(ownAttendance?.status ?? null);
-      setAttendancePartySize(String(ownAttendance?.party_size ?? 1));
-      setAttendanceGuestNames(ownAttendance?.guest_names ?? "");
-      setAttendanceNote(ownAttendance?.note ?? "");
       setAttendanceLoading(false);
     },
     [communityMembers, supabase, user],
@@ -1299,7 +1290,7 @@ export default function Home() {
     setPersonalLoading(true);
     const { data: attendanceRows, error: attendanceError } = await supabase
       .from("event_attendance")
-      .select("event_id,user_id,status,party_size,guest_names,note,created_at,updated_at")
+      .select("event_id,user_id,status,created_at,updated_at")
       .eq("user_id", user.id);
 
     const eventIds = Array.from(new Set((attendanceRows ?? []).map((row) => row.event_id)));
@@ -1856,9 +1847,6 @@ export default function Home() {
     if (!selectedEventId) {
       setEventAttendance([]);
       setAttendanceStatus(null);
-      setAttendancePartySize("1");
-      setAttendanceGuestNames("");
-      setAttendanceNote("");
       setAttendanceMessage(null);
       setEventBringNeeds([]);
       setEventBringContributions([]);
@@ -1895,20 +1883,8 @@ export default function Home() {
     const currentAttendance = eventAttendance.find(
       (attendance) => attendance.user_id === user?.id,
     );
-    const parsedPartySize = Number.parseInt(attendancePartySize, 10);
-    const normalizedPartySize = attendanceStatus === "not_going" ? 1 : parsedPartySize;
-    const isValidPartySize =
-      attendanceStatus === "not_going" ||
-      (Number.isInteger(normalizedPartySize) && normalizedPartySize >= 1 && normalizedPartySize <= 20);
 
-    if (!isValidPartySize) return;
-
-    const isDirty =
-      attendanceStatus !== currentAttendance?.status ||
-      normalizedPartySize !== (currentAttendance?.party_size ?? 1) ||
-      (attendanceStatus === "not_going" ? "" : attendanceGuestNames.trim()) !==
-        (currentAttendance?.guest_names ?? "") ||
-      attendanceNote.trim() !== (currentAttendance?.note ?? "");
+    const isDirty = attendanceStatus !== currentAttendance?.status;
 
     if (!isDirty) return;
 
@@ -1929,10 +1905,7 @@ export default function Home() {
       }
     };
   }, [
-    attendanceGuestNames,
     attendanceLoading,
-    attendanceNote,
-    attendancePartySize,
     attendanceStatus,
     communities,
     communityEvents,
@@ -3367,27 +3340,12 @@ export default function Home() {
     const statusToSave = statusOverride ?? attendanceStatus;
     if (!user || !selectedEventId || !statusToSave || savingAttendance) return;
 
-    const parsedPartySize = Number.parseInt(attendancePartySize, 10);
-    const normalizedPartySize = statusToSave === "not_going" ? 1 : parsedPartySize;
-
-    if (
-      statusToSave !== "not_going" &&
-      (!Number.isInteger(normalizedPartySize) || normalizedPartySize < 1 || normalizedPartySize > 20)
-    ) {
-      setAttendanceMessageTone("error");
-      setAttendanceMessage("מספר המשתתפים צריך להיות בין 1 ל־20.");
-      return;
-    }
-
     setSavingAttendance(true);
     setAttendanceMessage(null);
 
     const { error } = await supabase.rpc("save_event_attendance", {
       target_event_id: selectedEventId,
       target_status: statusToSave,
-      target_party_size: normalizedPartySize,
-      target_guest_names: statusToSave === "not_going" ? "" : attendanceGuestNames.trim(),
-      target_note: attendanceNote.trim(),
     });
 
     if (error) {
@@ -3396,13 +3354,10 @@ export default function Home() {
         (attendance) => attendance.user_id === user.id,
       );
       setAttendanceStatus(previousAttendance?.status ?? null);
-      setAttendancePartySize(String(previousAttendance?.party_size ?? 1));
-      setAttendanceGuestNames(previousAttendance?.guest_names ?? "");
-      setAttendanceNote(previousAttendance?.note ?? "");
       setAttendanceMessageTone("error");
       setAttendanceMessage(
         error.message.includes("event_capacity_exceeded")
-          ? "אין מספיק מקומות פנויים באירוע עבור מספר האנשים שבחרת."
+          ? "האירוע מלא ולא ניתן להצטרף כרגע."
           : `שמירת ההשתתפות לא הצליחה. ${formatSupabaseError(error)}`,
       );
       setSavingAttendance(false);
@@ -4100,10 +4055,7 @@ export default function Home() {
   const goingAttendance = eventAttendance.filter((attendance) => attendance.status === "going");
   const maybeAttendance = eventAttendance.filter((attendance) => attendance.status === "maybe");
   const notGoingAttendance = eventAttendance.filter((attendance) => attendance.status === "not_going");
-  const totalGoingPeople = goingAttendance.reduce(
-    (total, attendance) => total + attendance.party_size,
-    0,
-  );
+  const totalGoingPeople = goingAttendance.length;
   const freeBringContributions = eventBringContributions.filter(
     (contribution) => contribution.need_id === null,
   );
@@ -5867,48 +5819,6 @@ export default function Home() {
                 <p className="event-locked-message">האירוע סגור לשינויים.</p>
               )}
 
-              {attendanceStatus && attendanceStatus !== "not_going" && (
-                <div className="attendance-form-grid">
-                  <label>
-                    <span>כמה אנשים מגיעים יחד איתך?</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={attendancePartySize}
-                      onChange={(event) => setAttendancePartySize(event.target.value)}
-                      disabled={savingAttendance || eventLockedForCurrentUser}
-                    />
-                    <small>כולל אותך.</small>
-                  </label>
-                  <label>
-                    <span>שמות האורחים</span>
-                    <input
-                      type="text"
-                      value={attendanceGuestNames}
-                      onChange={(event) => setAttendanceGuestNames(event.target.value)}
-                      disabled={savingAttendance || eventLockedForCurrentUser}
-                      maxLength={300}
-                      placeholder="לא חובה"
-                    />
-                  </label>
-                </div>
-              )}
-
-              {attendanceStatus && (
-                <label className="attendance-note-field">
-                  <span>הערה למארגנים</span>
-                  <textarea
-                    value={attendanceNote}
-                    onChange={(event) => setAttendanceNote(event.target.value)}
-                    disabled={savingAttendance || eventLockedForCurrentUser}
-                    maxLength={600}
-                    rows={3}
-                    placeholder="לא חובה"
-                  />
-                </label>
-              )}
-
               <div className="attendance-form-actions">
                 {ownEventAttendance && (!eventLockedForCurrentUser || canDeleteAnyEventAttendance) && (
                   <button
@@ -6150,15 +6060,6 @@ export default function Home() {
                                 {attendance.phone && <PhoneLink phone={attendance.phone} />}
                                 <span>{attendanceStatusLabel(attendance.status)}</span>
                                 <span className="attendance-registered-at">נרשם/ה: {formatShortDateTime(attendance.created_at)}</span>
-                                {attendance.status !== "not_going" && attendance.party_size > 1 && (
-                                  <span>מגיעים {attendance.party_size} אנשים</span>
-                                )}
-                                {attendance.guest_names && (
-                                  <p><b>פרטי האורחים:</b> {attendance.guest_names}</p>
-                                )}
-                                {attendance.note && (
-                                  <p><b>הערה:</b> {attendance.note}</p>
-                                )}
                               </div>
                               {canDeleteAnyEventAttendance && attendance.user_id !== user.id && (
                                 <button
