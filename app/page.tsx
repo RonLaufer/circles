@@ -5,6 +5,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { RichText } from "@/app/components/RichText";
+import {
+  CompressedVideoTooLargeError,
+  compressVideo,
+  isSupportedVideoFile,
+} from "@/lib/video-compression";
 
 type Profile = {
   id: string;
@@ -21,25 +26,88 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.2.2";
+const APP_VERSION = "v1.1.2.7";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
 const PRODUCTION_ORIGIN = "https://circles-community.vercel.app";
-const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const DEFAULT_IMAGE_MAX_BYTES = 1 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1800;
-const MAX_GALLERY_IMAGES = 20;
-const MAX_GALLERY_VIDEO_BYTES = 20 * 1024 * 1024;
-const MAX_COMMUNITY_VIDEO_BYTES = 50 * 1024 * 1024;
+const DEFAULT_GALLERY_IMAGE_LIMIT = 100;
+const DEFAULT_GALLERY_IMAGE_MAX_MB = 1;
+const DEFAULT_GALLERY_VIDEO_LIMIT = 3;
+const DEFAULT_GALLERY_VIDEO_MAX_MB = 20;
+const MAX_COMMUNITY_VIDEO_BYTES = 20 * 1024 * 1024;
+
+const MEDIA_LIMITS = {
+  imageCountMin: 0,
+  imageCountMax: 1000,
+  imageMaxMbMin: 0.1,
+  imageMaxMbMax: 20,
+  videoCountMin: 0,
+  videoCountMax: 20,
+  videoMaxMbMin: 1,
+  videoMaxMbMax: 200,
+} as const;
+
+type MediaDefaults = {
+  default_gallery_image_limit: number;
+  default_gallery_image_max_mb: number;
+  default_gallery_video_limit: number;
+  default_gallery_video_max_mb: number;
+};
+
+const FALLBACK_MEDIA_DEFAULTS: MediaDefaults = {
+  default_gallery_image_limit: DEFAULT_GALLERY_IMAGE_LIMIT,
+  default_gallery_image_max_mb: DEFAULT_GALLERY_IMAGE_MAX_MB,
+  default_gallery_video_limit: DEFAULT_GALLERY_VIDEO_LIMIT,
+  default_gallery_video_max_mb: DEFAULT_GALLERY_VIDEO_MAX_MB,
+};
 
 type SelectedImage = {
   blob: Blob;
   previewUrl: string;
 };
 
+class CompressedImageTooLargeError extends Error {
+  beforeBytes: number;
+  afterBytes: number;
+  maxBytes: number;
+
+  constructor(beforeBytes: number, afterBytes: number, maxBytes: number) {
+    super("compressed_image_too_large");
+    this.name = "CompressedImageTooLargeError";
+    this.beforeBytes = beforeBytes;
+    this.afterBytes = afterBytes;
+    this.maxBytes = maxBytes;
+  }
+}
+
+function formatMegabytes(bytes: number) {
+  return (bytes / (1024 * 1024)).toFixed(2);
+}
+
+function megabytesToBytes(megabytes: number) {
+  return Math.round(megabytes * 1024 * 1024);
+}
+
+function formatCompressedImageTooLarge(error: CompressedImageTooLargeError) {
+  return `גודל התמונה המקורית הוא ${formatMegabytes(error.beforeBytes)} מגה. לאחר כיווץ גודלה ${formatMegabytes(error.afterBytes)} מגה. לא ניתן להעלות תמונה מכווצת שגודלה מעל ${formatMegabytes(error.maxBytes)} מגה.`;
+}
+
+function formatCompressedVideoTooLarge(error: CompressedVideoTooLargeError) {
+  return `גודל הסרטון המקורי הוא ${formatMegabytes(error.beforeBytes)} מגה. לאחר כיווץ גודלו ${formatMegabytes(error.afterBytes)} מגה. לא ניתן להעלות סרטון מכווץ שגודלו מעל ${formatMegabytes(error.maxBytes)} מגה.`;
+}
+
 type SelectedVideo = {
   file: File;
   previewUrl: string;
+};
+
+type VideoProcessNotice = {
+  text: string;
+  progress: number | null;
+  tone: "info" | "success" | "error";
 };
 
 type Community = {
@@ -132,6 +200,10 @@ type CommunityEvent = {
   image_url: string | null;
   participant_limit: number | null;
   bring_mode: EventBringMode;
+  gallery_image_limit: number;
+  gallery_image_max_mb: number;
+  gallery_video_limit: number;
+  gallery_video_max_mb: number;
   share_token: string;
   status: "active" | "cancelled";
   cancelled_at: string | null;
@@ -654,6 +726,31 @@ function PhoneLink({ phone }: { phone: string }) {
   );
 }
 
+function VideoProcessStatus({ notice }: { notice: VideoProcessNotice | null }) {
+  if (!notice) return null;
+
+  return (
+    <div className={`video-process-status ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>
+      <div className="video-process-status-row">
+        {notice.tone === "info" && <span className="video-process-spinner" aria-hidden="true" />}
+        <span>{notice.text}</span>
+      </div>
+      {notice.progress !== null && (
+        <div
+          className="video-process-progress"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={notice.progress}
+          aria-label="התקדמות כיווץ הסרטון"
+        >
+          <span style={{ width: `${Math.max(0, Math.min(100, notice.progress))}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProfileAvatar({
   imageUrl,
   name,
@@ -700,6 +797,13 @@ function ProfileAvatar({
   );
 }
 
+const SUPPORTED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"]);
+
+function isSupportedImageFile(file: File) {
+  const extension = file.name.split(".").pop()?.trim().toLowerCase() ?? "";
+  return file.type.startsWith("image/") || SUPPORTED_IMAGE_EXTENSIONS.has(extension);
+}
+
 function loadImage(sourceUrl: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -722,16 +826,13 @@ function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
   });
 }
 
-async function compressImage(file: File): Promise<SelectedImage> {
-  if (!file.type.startsWith("image/")) {
+async function compressImage(file: File, maxOutputBytes = DEFAULT_IMAGE_MAX_BYTES): Promise<SelectedImage> {
+  if (!isSupportedImageFile(file)) {
     throw new Error("not_an_image");
   }
 
-  if (file.size > MAX_IMAGE_BYTES) {
-    throw new Error("image_too_large");
-  }
-
   const sourceUrl = URL.createObjectURL(file);
+  let lastCompressedSize = file.size;
 
   try {
     const image = await loadImage(sourceUrl);
@@ -742,32 +843,34 @@ async function compressImage(file: File): Promise<SelectedImage> {
       throw new Error("image_decode_failed");
     }
 
-    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(sourceWidth, sourceHeight));
+    const initialScale = Math.min(1, MAX_IMAGE_EDGE / Math.max(sourceWidth, sourceHeight));
+    const baseWidth = Math.max(1, Math.round(sourceWidth * initialScale));
+    const baseHeight = Math.max(1, Math.round(sourceHeight * initialScale));
+    const dimensionScales = [1, 0.85, 0.7, 0.55, 0.4, 0.3];
+    const qualities = [0.82, 0.7, 0.58, 0.46, 0.34, 0.25];
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-
     const context = canvas.getContext("2d");
     if (!context) throw new Error("image_compression_failed");
 
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const dimensionScale of dimensionScales) {
+      canvas.width = Math.max(1, Math.round(baseWidth * dimensionScale));
+      canvas.height = Math.max(1, Math.round(baseHeight * dimensionScale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-    let compressed = await canvasToBlob(canvas, 0.82);
-    if (compressed.size > MAX_IMAGE_BYTES) {
-      compressed = await canvasToBlob(canvas, 0.66);
-    }
-    if (compressed.size > MAX_IMAGE_BYTES) {
-      compressed = await canvasToBlob(canvas, 0.5);
+      for (const quality of qualities) {
+        const compressed = await canvasToBlob(canvas, quality);
+        lastCompressedSize = compressed.size;
+        if (compressed.size <= maxOutputBytes) {
+          return {
+            blob: compressed,
+            previewUrl: URL.createObjectURL(compressed),
+          };
+        }
+      }
     }
 
-    if (compressed.size > MAX_IMAGE_BYTES) {
-      throw new Error("compressed_image_too_large");
-    }
-
-    return {
-      blob: compressed,
-      previewUrl: URL.createObjectURL(compressed),
-    };
+    throw new CompressedImageTooLargeError(file.size, lastCompressedSize, maxOutputBytes);
   } finally {
     URL.revokeObjectURL(sourceUrl);
   }
@@ -976,6 +1079,7 @@ export default function Home() {
   const [profileImage, setProfileImage] = useState<SelectedImage | null>(null);
   const [communityImage, setCommunityImage] = useState<SelectedImage | null>(null);
   const [communityVideo, setCommunityVideo] = useState<SelectedVideo | null>(null);
+  const [communityVideoNotice, setCommunityVideoNotice] = useState<VideoProcessNotice | null>(null);
   const [lightbox, setLightbox] = useState<{ url: string; alt: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -1041,6 +1145,15 @@ export default function Home() {
   const [galleryPhotos, setGalleryPhotos] = useState<EventGalleryPhoto[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  const [galleryVideoNotice, setGalleryVideoNotice] = useState<VideoProcessNotice | null>(null);
+  const [mediaDefaults, setMediaDefaults] = useState<MediaDefaults>(FALLBACK_MEDIA_DEFAULTS);
+  const [mediaDefaultsSaving, setMediaDefaultsSaving] = useState(false);
+  const [mediaDefaultsMessage, setMediaDefaultsMessage] = useState<string | null>(null);
+  const [mediaDefaultsMessageTone, setMediaDefaultsMessageTone] = useState<"error" | "success">("success");
+  const [eventGalleryImageLimit, setEventGalleryImageLimit] = useState(String(DEFAULT_GALLERY_IMAGE_LIMIT));
+  const [eventGalleryImageMaxMb, setEventGalleryImageMaxMb] = useState(String(DEFAULT_GALLERY_IMAGE_MAX_MB));
+  const [eventGalleryVideoLimit, setEventGalleryVideoLimit] = useState(String(DEFAULT_GALLERY_VIDEO_LIMIT));
+  const [eventGalleryVideoMaxMb, setEventGalleryVideoMaxMb] = useState(String(DEFAULT_GALLERY_VIDEO_MAX_MB));
   const [conversationTopics, setConversationTopics] = useState<EventConversationTopic[]>([]);
   const [conversationMessages, setConversationMessages] = useState<EventConversationMessage[]>([]);
   const [activeConversationTopicId, setActiveConversationTopicId] = useState<string | null>(null);
@@ -1322,6 +1435,32 @@ export default function Home() {
     [supabase, user?.email],
   );
 
+  const loadMediaDefaults = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("system_media_settings")
+      .select("default_gallery_image_limit,default_gallery_image_max_mb,default_gallery_video_limit,default_gallery_video_max_mb")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code !== "42P01") console.error("Loading media defaults failed", error);
+      setMediaDefaults(FALLBACK_MEDIA_DEFAULTS);
+      return;
+    }
+
+    if (!data) {
+      setMediaDefaults(FALLBACK_MEDIA_DEFAULTS);
+      return;
+    }
+
+    setMediaDefaults({
+      default_gallery_image_limit: Number(data.default_gallery_image_limit),
+      default_gallery_image_max_mb: Number(data.default_gallery_image_max_mb),
+      default_gallery_video_limit: Number(data.default_gallery_video_limit),
+      default_gallery_video_max_mb: Number(data.default_gallery_video_max_mb),
+    });
+  }, [supabase]);
+
   const loadCommunityEvents = useCallback(
     async (communityId: string) => {
       setEventsLoading(true);
@@ -1329,7 +1468,7 @@ export default function Home() {
       const { data, error } = await supabase
         .from("community_events")
         .select(
-          "id,community_id,title,description,location,starts_at,ends_at,image_url,participant_limit,bring_mode,share_token,status,cancelled_at,cancelled_by,created_by,created_at,updated_at",
+          "id,community_id,title,description,location,starts_at,ends_at,image_url,participant_limit,bring_mode,gallery_image_limit,gallery_image_max_mb,gallery_video_limit,gallery_video_max_mb,share_token,status,cancelled_at,cancelled_by,created_at,updated_at,created_by",
         )
         .eq("community_id", communityId)
         .order("starts_at", { ascending: true });
@@ -1341,7 +1480,9 @@ export default function Home() {
         setMessage(
           error.code === "42P01"
             ? "יש להריץ את קובץ ה־SQL של circles24 ב־Supabase."
-            : "לא הצלחנו לטעון את אירועי המעגל.",
+            : error.code === "42703"
+              ? "יש להריץ את קובץ ה־SQL של circles127 ב־Supabase."
+              : "לא הצלחנו לטעון את אירועי המעגל.",
         );
       } else {
         setCommunityEvents((data ?? []) as CommunityEvent[]);
@@ -1647,7 +1788,7 @@ export default function Home() {
     const { data: eventRows, error: eventsError } = eventIds.length
       ? await supabase
           .from("community_events")
-          .select("id,community_id,title,description,location,starts_at,ends_at,image_url,participant_limit,bring_mode,share_token,status,cancelled_at,cancelled_by,created_by,created_at,updated_at")
+          .select("id,community_id,title,description,location,starts_at,ends_at,image_url,participant_limit,bring_mode,gallery_image_limit,gallery_image_max_mb,gallery_video_limit,gallery_video_max_mb,share_token,status,cancelled_at,cancelled_by,created_at,updated_at,created_by")
           .in("id", eventIds)
       : { data: [], error: null };
 
@@ -2100,6 +2241,10 @@ export default function Home() {
   useEffect(() => {
     if (profileScreenOpen) void loadPersonalDashboard();
   }, [loadPersonalDashboard, profileScreenOpen]);
+
+  useEffect(() => {
+    if (user) void loadMediaDefaults();
+  }, [loadMediaDefaults, user]);
 
   useLayoutEffect(() => {
     const editorOpen = eventFormOpen;
@@ -2983,17 +3128,20 @@ export default function Home() {
         });
       }
     } catch (error) {
-      console.error("Image preparation failed", error);
       setMessageTone("error");
       setMessage(
-        error instanceof Error && error.message === "image_too_large"
-          ? "אפשר לצרף תמונה בגודל של עד 3MB."
-          : "לא הצלחנו לקרוא את התמונה. נסו לבחור קובץ תמונה אחר.",
+        error instanceof CompressedImageTooLargeError
+          ? formatCompressedImageTooLarge(error)
+          : "לא הצלחנו לקרוא את התמונה. אם זה קובץ HEIC/HEIF, נסו לפתוח ולשמור אותו כתמונה רגילה או לבחור קובץ אחר.",
       );
     }
   }
 
   async function uploadPublicImage(bucket: string, path: string, blob: Blob) {
+    if (blob.size > DEFAULT_IMAGE_MAX_BYTES) {
+      throw new Error("compressed_image_too_large");
+    }
+
     const { error } = await supabase.storage.from(bucket).upload(path, blob, {
       contentType: "image/webp",
       cacheControl: "3600",
@@ -3007,34 +3155,57 @@ export default function Home() {
   }
 
 
-  function prepareCommunityVideo(file: File) {
-    const allowedTypes = ["video/mp4", "video/webm", "video/quicktime"];
-
-    if (!allowedTypes.includes(file.type)) {
-      setMessageTone("error");
-      setMessage("אפשר לצרף סרטון מסוג MP4, MOV או WebM.");
-      return;
-    }
-
-    if (file.size > MAX_COMMUNITY_VIDEO_BYTES) {
-      setMessageTone("error");
-      setMessage("אפשר לצרף סרטון בגודל של עד 50MB.");
-      return;
-    }
-
+  async function prepareCommunityVideo(file: File) {
     setMessage(null);
-    setCommunityVideo((current) => {
-      clearSelectedVideo(current);
-      return {
-        file,
-        previewUrl: URL.createObjectURL(file),
-      };
-    });
+    setCommunityVideoNotice({ text: "בודק את הסרטון…", progress: 0, tone: "info" });
+
+    if (!isSupportedVideoFile(file)) {
+      setCommunityVideoNotice({
+        text: "פורמט הסרטון אינו נתמך. אפשר לבחור MP4, MOV, M4V או WebM.",
+        progress: null,
+        tone: "error",
+      });
+      return;
+    }
+
+    try {
+      const result = await compressVideo(file, MAX_COMMUNITY_VIDEO_BYTES, ({ message, progress }) => {
+        setCommunityVideoNotice({ text: message, progress, tone: "info" });
+      });
+
+      setCommunityVideo((current) => {
+        clearSelectedVideo(current);
+        return {
+          file: result.file,
+          previewUrl: URL.createObjectURL(result.file),
+        };
+      });
+      setCommunityVideoNotice({
+        text: `הסרטון מוכן: ${Number((result.afterBytes / (1024 * 1024)).toFixed(2))}MB לאחר הכיווץ.`,
+        progress: 100,
+        tone: "success",
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "";
+      const text = error instanceof CompressedVideoTooLargeError
+        ? formatCompressedVideoTooLarge(error)
+        : errorMessage === "video_compression_busy"
+          ? "כבר מתבצע כיווץ של סרטון אחר. המתינו לסיום ונסו שוב."
+          : errorMessage === "video_metadata_failed" || errorMessage === "video_metadata_timeout"
+            ? "לא הצלחנו לקרוא את הסרטון. נסו לבחור קובץ אחר."
+            : errorMessage === "unsupported_video_type"
+              ? "פורמט הסרטון אינו נתמך. אפשר לבחור MP4, MOV, M4V או WebM."
+              : "כיווץ הסרטון נכשל. נסו שוב או בחרו סרטון אחר.";
+      setCommunityVideoNotice({ text, progress: null, tone: "error" });
+      setMessageTone("error");
+      setMessage(text);
+    }
   }
 
-  async function uploadPublicVideo(bucket: string, path: string, file: File) {
+  async function uploadPublicVideo(bucket: string, path: string, file: File, maxBytes: number) {
+    if (file.size > maxBytes) throw new Error("compressed_video_too_large");
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
-      contentType: file.type,
+      contentType: "video/mp4",
       cacheControl: "3600",
       upsert: true,
     });
@@ -3068,7 +3239,6 @@ export default function Home() {
           profileImage.blob,
         );
       } catch (error) {
-        console.error("Profile image upload failed", error);
         setMessageTone("error");
         setMessage("העלאת תמונת הפרופיל לא הצליחה. נסו שוב.");
         setSaving(false);
@@ -3122,6 +3292,7 @@ export default function Home() {
       clearSelectedVideo(current);
       return null;
     });
+    setCommunityVideoNotice(null);
     setMessage(null);
     setCommunityFormOpen(true);
   }
@@ -3139,6 +3310,7 @@ export default function Home() {
       clearSelectedVideo(current);
       return null;
     });
+    setCommunityVideoNotice(null);
     setMessage(null);
     setCommunityFormOpen(true);
   }
@@ -3155,6 +3327,7 @@ export default function Home() {
         clearSelectedVideo(current);
         return null;
       });
+      setCommunityVideoNotice(null);
     }
   }
 
@@ -3189,7 +3362,6 @@ export default function Home() {
             communityImage.blob,
           );
         } catch (error) {
-          console.error("Circle image upload failed", error);
           setMessageTone("error");
           setMessage("העלאת תמונת המעגל לא הצליחה. נסו שוב.");
           setSavingCommunity(false);
@@ -3204,11 +3376,13 @@ export default function Home() {
             "community-videos",
             `${existingCommunity.id}/intro`,
             communityVideo.file,
+            MAX_COMMUNITY_VIDEO_BYTES,
           );
         } catch (error) {
-          console.error("Circle video upload failed", error);
+          const text = "העלאת סרטון המעגל לא הצליחה. הסרטון נשאר מוכן ותוכלו לנסות לשמור שוב.";
+          setCommunityVideoNotice({ text, progress: null, tone: "error" });
           setMessageTone("error");
-          setMessage("העלאת סרטון המעגל לא הצליחה. נסו שוב.");
+          setMessage(text);
           setSavingCommunity(false);
           return;
         }
@@ -3312,7 +3486,6 @@ export default function Home() {
 
         if (logoUpdateError) throw logoUpdateError;
       } catch (error) {
-        console.error("Circle image upload failed", error);
         imageUploadFailed = true;
         uploadedLogoUrl = null;
       }
@@ -3325,6 +3498,7 @@ export default function Home() {
           "community-videos",
           `${communityId}/intro`,
           communityVideo.file,
+          MAX_COMMUNITY_VIDEO_BYTES,
         );
 
         const { error: videoUpdateError } = await supabase
@@ -3334,7 +3508,11 @@ export default function Home() {
 
         if (videoUpdateError) throw videoUpdateError;
       } catch (error) {
-        console.error("Circle video upload failed", error);
+        setCommunityVideoNotice({
+          text: "העלאת סרטון המעגל לא הצליחה. נסו לשמור שוב.",
+          progress: null,
+          tone: "error",
+        });
         videoUploadFailed = true;
         uploadedVideoUrl = null;
       }
@@ -3409,6 +3587,10 @@ export default function Home() {
     setCloneEventId("");
     setEventHasParticipantLimit(false);
     setEventParticipantLimit("");
+    setEventGalleryImageLimit(String(mediaDefaults.default_gallery_image_limit));
+    setEventGalleryImageMaxMb(String(mediaDefaults.default_gallery_image_max_mb));
+    setEventGalleryVideoLimit(String(mediaDefaults.default_gallery_video_limit));
+    setEventGalleryVideoMaxMb(String(mediaDefaults.default_gallery_video_max_mb));
     setEventLocation("");
     setEventDescription("");
     setEventImage((current) => {
@@ -3435,6 +3617,10 @@ export default function Home() {
     setEventBringMode(source.bring_mode ?? "free");
     setEventHasParticipantLimit(source.participant_limit !== null);
     setEventParticipantLimit(source.participant_limit?.toString() ?? "");
+    setEventGalleryImageLimit(String(source.gallery_image_limit ?? mediaDefaults.default_gallery_image_limit));
+    setEventGalleryImageMaxMb(String(source.gallery_image_max_mb ?? mediaDefaults.default_gallery_image_max_mb));
+    setEventGalleryVideoLimit(String(source.gallery_video_limit ?? mediaDefaults.default_gallery_video_limit));
+    setEventGalleryVideoMaxMb(String(source.gallery_video_max_mb ?? mediaDefaults.default_gallery_video_max_mb));
     setEventLocation(source.location);
     setEventDescription(source.description);
     setEventImage((current) => {
@@ -3476,6 +3662,7 @@ export default function Home() {
     setSelectedEventId(event.id);
     setAttendanceMessage(null);
     setBringMessage(null);
+    setGalleryVideoNotice(null);
     setMessage(null);
   }
 
@@ -3508,6 +3695,10 @@ export default function Home() {
     setCloneEventId("");
     setEventHasParticipantLimit(event.participant_limit !== null);
     setEventParticipantLimit(event.participant_limit?.toString() ?? "");
+    setEventGalleryImageLimit(String(event.gallery_image_limit ?? mediaDefaults.default_gallery_image_limit));
+    setEventGalleryImageMaxMb(String(event.gallery_image_max_mb ?? mediaDefaults.default_gallery_image_max_mb));
+    setEventGalleryVideoLimit(String(event.gallery_video_limit ?? mediaDefaults.default_gallery_video_limit));
+    setEventGalleryVideoMaxMb(String(event.gallery_video_max_mb ?? mediaDefaults.default_gallery_video_max_mb));
     setEventLocation(event.location);
     setEventDescription(event.description);
     setEventImage((current) => {
@@ -3942,34 +4133,45 @@ export default function Home() {
     return true;
   }
 
-  async function uploadGalleryMedia(file: File, mediaType: "image" | "video") {
-    if (!selectedEvent || !selectedCommunity || !user) return false;
+  type GalleryUploadResult = {
+    uploaded: boolean;
+    errorText: string | null;
+  };
+
+  async function uploadGalleryMedia(
+    file: File,
+    mediaType: "image" | "video",
+    reloadAfterUpload = true,
+  ): Promise<GalleryUploadResult> {
+    if (!selectedEvent || !selectedCommunity || !user) {
+      return { uploaded: false, errorText: "לא ניתן להעלות את הקובץ כרגע." };
+    }
 
     const imageCount = galleryPhotos.filter((item) => item.media_type === "image").length;
     const videoCount = galleryPhotos.filter((item) => item.media_type === "video").length;
 
-    if (mediaType === "image" && imageCount >= MAX_GALLERY_IMAGES) {
+    if (mediaType === "image" && imageCount >= galleryImageLimit) {
+      const text = `אפשר להעלות עד ${galleryImageLimit} תמונות לגלריה.`;
       setMessageTone("error");
-      setMessage(`אפשר להעלות עד ${MAX_GALLERY_IMAGES} תמונות לגלריה.`);
-      return false;
+      setMessage(text);
+      setGalleryVideoNotice({ text, progress: null, tone: "error" });
+      return { uploaded: false, errorText: text };
     }
 
-    if (mediaType === "video" && videoCount >= 1) {
+    if (mediaType === "video" && videoCount >= galleryVideoLimit) {
+      const text = `אפשר להעלות עד ${galleryVideoLimit} סרטונים לגלריה.`;
       setMessageTone("error");
-      setMessage("אפשר להעלות סרטון אחד בלבד לגלריה.");
-      return false;
-    }
-
-    if (mediaType === "video" && file.size > MAX_GALLERY_VIDEO_BYTES) {
-      setMessageTone("error");
-      setMessage("אפשר להעלות סרטון בגודל של עד 20MB.");
-      return false;
+      setMessage(text);
+      setGalleryVideoNotice({ text, progress: null, tone: "error" });
+      return { uploaded: false, errorText: text };
     }
 
     setGalleryBusy(true);
     setMessage(null);
+    if (mediaType === "video") {
+      setGalleryVideoNotice({ text: "בודק את הסרטון…", progress: 0, tone: "info" });
+    }
     let objectPath = "";
-    let uploaded = false;
 
     try {
       const mediaId = crypto.randomUUID();
@@ -3978,16 +4180,31 @@ export default function Home() {
       let contentType = "image/webp";
 
       if (mediaType === "image") {
-        const compressed = await compressImage(file);
+        const compressed = await compressImage(file, galleryImageMaxBytes);
         mediaBlob = compressed.blob;
         URL.revokeObjectURL(compressed.previewUrl);
       } else {
-        const allowedVideoTypes = ["video/mp4", "video/webm", "video/quicktime"];
-        if (!allowedVideoTypes.includes(file.type)) {
+        if (!isSupportedVideoFile(file)) {
           throw new Error("unsupported_video_type");
         }
-        contentType = file.type;
-        extension = file.type === "video/webm" ? "webm" : file.type === "video/quicktime" ? "mov" : "mp4";
+        const compressed = await compressVideo(file, galleryVideoMaxBytes, ({ message, progress }) => {
+          setGalleryVideoNotice({ text: message, progress, tone: "info" });
+        });
+        mediaBlob = compressed.file;
+        contentType = "video/mp4";
+        extension = "mp4";
+        setGalleryVideoNotice({
+          text: `הכיווץ הסתיים. מעלה סרטון בגודל ${formatMegabytes(compressed.afterBytes)} מגה…`,
+          progress: 100,
+          tone: "info",
+        });
+      }
+
+      if (mediaType === "image" && mediaBlob.size > galleryImageMaxBytes) {
+        throw new CompressedImageTooLargeError(file.size, mediaBlob.size, galleryImageMaxBytes);
+      }
+      if (mediaType === "video" && mediaBlob.size > galleryVideoMaxBytes) {
+        throw new CompressedVideoTooLargeError(file.size, mediaBlob.size, galleryVideoMaxBytes);
       }
 
       objectPath = `${selectedCommunity.id}/${selectedEvent.id}/${user.id}/${mediaId}.${extension}`;
@@ -4014,66 +4231,138 @@ export default function Home() {
       });
       if (error) throw error;
 
-      await loadEventGallery(selectedEvent.id);
-      uploaded = true;
+      if (reloadAfterUpload) await loadEventGallery(selectedEvent.id);
+      if (mediaType === "video") {
+        setGalleryVideoNotice({ text: "הסרטון כווץ והועלה בהצלחה.", progress: 100, tone: "success" });
+      }
+      setGalleryBusy(false);
+      return { uploaded: true, errorText: null };
     } catch (error) {
       if (objectPath) {
         await supabase.storage.from("event-gallery").remove([objectPath]);
       }
-      console.error("Uploading gallery media failed", error);
       setMessageTone("error");
       const formatted = formatSupabaseError(error);
-      if (error instanceof Error && error.message === "unsupported_video_type") {
-        setMessage("פורמט הסרטון אינו נתמך. אפשר להעלות MP4, MOV או WebM.");
+      let text: string;
+      if (error instanceof CompressedImageTooLargeError) {
+        text = formatCompressedImageTooLarge(error);
+      } else if (error instanceof CompressedVideoTooLargeError) {
+        text = formatCompressedVideoTooLarge(error);
+      } else if (error instanceof Error && error.message === "unsupported_video_type") {
+        text = "פורמט הסרטון אינו נתמך. אפשר להעלות MP4, MOV, M4V או WebM.";
+      } else if (error instanceof Error && error.message === "video_compression_busy") {
+        text = "כבר מתבצע כיווץ של סרטון אחר. המתינו לסיום ונסו שוב.";
+      } else if (error instanceof Error && (error.message === "video_metadata_failed" || error.message === "video_metadata_timeout")) {
+        text = "לא הצלחנו לקרוא את הסרטון. נסו לבחור קובץ אחר.";
       } else if (formatted.includes("gallery_image_limit_reached")) {
-        setMessage(`אפשר להעלות עד ${MAX_GALLERY_IMAGES} תמונות לגלריה.`);
+        text = `אפשר להעלות עד ${galleryImageLimit} תמונות לגלריה.`;
       } else if (formatted.includes("gallery_video_limit_reached")) {
-        setMessage("אפשר להעלות סרטון אחד בלבד לגלריה.");
+        text = `אפשר להעלות עד ${galleryVideoLimit} סרטונים לגלריה.`;
+      } else if (mediaType === "image" && error instanceof Error && error.message === "image_decode_failed") {
+        text = "לא הצלחנו לקרוא את התמונה. אם זה קובץ HEIC/HEIF, נסו לפתוח ולשמור אותו כתמונה רגילה או לבחור קובץ אחר.";
       } else {
-        setMessage(`העלאת הקובץ לגלריה נכשלה. ${formatted}`);
+        text = `העלאת הקובץ לגלריה נכשלה. ${formatted}`;
       }
+      setMessage(text);
+      setGalleryVideoNotice({ text, progress: null, tone: "error" });
+      setGalleryBusy(false);
+      return { uploaded: false, errorText: text };
     }
-    setGalleryBusy(false);
-    return uploaded;
   }
 
   async function uploadGalleryImages(files: File[]) {
-    if (files.length === 0) return;
+    if (files.length === 0 || !selectedEvent) return;
 
-    const availableSlots = Math.max(0, MAX_GALLERY_IMAGES - galleryImageCount);
+    const availableSlots = Math.max(0, galleryImageLimit - galleryImageCount);
     if (availableSlots === 0) {
+      const text = `אפשר להעלות עד ${galleryImageLimit} תמונות לגלריה.`;
       setMessageTone("error");
-      setMessage(`אפשר להעלות עד ${MAX_GALLERY_IMAGES} תמונות לגלריה.`);
+      setMessage(text);
+      setGalleryVideoNotice({ text, progress: null, tone: "error" });
       return;
     }
 
     const filesToUpload = files.slice(0, availableSlots);
     let uploadedCount = 0;
-    let failedCount = 0;
+    const errors: string[] = [];
 
-    for (const file of filesToUpload) {
-      const uploaded = await uploadGalleryMedia(file, "image");
-      if (uploaded) uploadedCount += 1;
-      else failedCount += 1;
+    for (let index = 0; index < filesToUpload.length; index += 1) {
+      setGalleryVideoNotice({
+        text: `מעבד ומעלה תמונה ${index + 1} מתוך ${filesToUpload.length}…`,
+        progress: Math.round((index / filesToUpload.length) * 100),
+        tone: "info",
+      });
+      const result = await uploadGalleryMedia(filesToUpload[index], "image", false);
+      if (result.uploaded) uploadedCount += 1;
+      else if (result.errorText) errors.push(result.errorText);
     }
 
+    if (uploadedCount > 0) await loadEventGallery(selectedEvent.id);
     const skippedCount = files.length - filesToUpload.length;
-    if (failedCount > 0 || skippedCount > 0) {
+    if (errors.length > 0 || skippedCount > 0) {
+      const firstError = errors[0] ?? "";
+      const extraErrors = errors.length > 1 ? ` בנוסף, ${errors.length - 1} תמונות נוספות לא הועלו.` : "";
+      const skippedText = skippedCount > 0
+        ? ` ${skippedCount} תמונות לא הועלו משום שהגלריה מוגבלת ל־${galleryImageLimit} תמונות.`
+        : "";
+      const text = `${firstError}${extraErrors}${skippedText}`.trim();
       setMessageTone("error");
-      setMessage(
-        [
-          uploadedCount > 0 ? `${uploadedCount} תמונות הועלו בהצלחה.` : "",
-          failedCount > 0 ? `${failedCount} תמונות לא הועלו.` : "",
-          skippedCount > 0
-            ? `${skippedCount} תמונות לא נבחרו להעלאה משום שהגלריה מוגבלת ל־${MAX_GALLERY_IMAGES} תמונות.`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
-    } else if (uploadedCount > 1) {
-      setMessageTone("success");
-      setMessage(`${uploadedCount} תמונות הועלו בהצלחה.`);
+      setMessage(text);
+      setGalleryVideoNotice({ text, progress: null, tone: "error" });
+    } else {
+      setGalleryVideoNotice({
+        text: `${uploadedCount} תמונות הועלו בהצלחה.`,
+        progress: 100,
+        tone: "success",
+      });
+    }
+  }
+
+  async function uploadGalleryVideos(files: File[]) {
+    if (files.length === 0 || !selectedEvent) return;
+
+    const availableSlots = Math.max(0, galleryVideoLimit - galleryVideoCount);
+    if (availableSlots === 0) {
+      const text = `אפשר להעלות עד ${galleryVideoLimit} סרטונים לגלריה.`;
+      setMessageTone("error");
+      setMessage(text);
+      setGalleryVideoNotice({ text, progress: null, tone: "error" });
+      return;
+    }
+
+    const filesToUpload = files.slice(0, availableSlots);
+    let uploadedCount = 0;
+    const errors: string[] = [];
+
+    for (let index = 0; index < filesToUpload.length; index += 1) {
+      setGalleryVideoNotice({
+        text: `מעבד סרטון ${index + 1} מתוך ${filesToUpload.length}…`,
+        progress: 0,
+        tone: "info",
+      });
+      const result = await uploadGalleryMedia(filesToUpload[index], "video", false);
+      if (result.uploaded) uploadedCount += 1;
+      else if (result.errorText) errors.push(result.errorText);
+    }
+
+    if (uploadedCount > 0) await loadEventGallery(selectedEvent.id);
+    const skippedCount = files.length - filesToUpload.length;
+    if (errors.length > 0 || skippedCount > 0) {
+      const firstError = errors[0] ?? "";
+      const extraErrors = errors.length > 1 ? ` בנוסף, ${errors.length - 1} סרטונים נוספים לא הועלו.` : "";
+      const skippedText = skippedCount > 0
+        ? ` ${skippedCount} סרטונים לא הועלו משום שהגלריה מוגבלת ל־${galleryVideoLimit} סרטונים.`
+        : "";
+      const text = `${firstError}${extraErrors}${skippedText}`.trim();
+      setMessageTone("error");
+      setMessage(text);
+      setGalleryVideoNotice({ text, progress: null, tone: "error" });
+    } else {
+      setGalleryVideoNotice({
+        text: `${uploadedCount} סרטונים הועלו בהצלחה.`,
+        progress: 100,
+        tone: "success",
+      });
     }
   }
 
@@ -4195,6 +4484,50 @@ export default function Home() {
     }
   }
 
+  async function saveMediaDefaults() {
+    if (!user || !isSystemAdminEmail(user.email)) return;
+
+    const values = mediaDefaults;
+    const valid =
+      Number.isInteger(values.default_gallery_image_limit) &&
+      values.default_gallery_image_limit >= MEDIA_LIMITS.imageCountMin &&
+      values.default_gallery_image_limit <= MEDIA_LIMITS.imageCountMax &&
+      Number.isFinite(values.default_gallery_image_max_mb) &&
+      values.default_gallery_image_max_mb >= MEDIA_LIMITS.imageMaxMbMin &&
+      values.default_gallery_image_max_mb <= MEDIA_LIMITS.imageMaxMbMax &&
+      Number.isInteger(values.default_gallery_video_limit) &&
+      values.default_gallery_video_limit >= MEDIA_LIMITS.videoCountMin &&
+      values.default_gallery_video_limit <= MEDIA_LIMITS.videoCountMax &&
+      Number.isFinite(values.default_gallery_video_max_mb) &&
+      values.default_gallery_video_max_mb >= MEDIA_LIMITS.videoMaxMbMin &&
+      values.default_gallery_video_max_mb <= MEDIA_LIMITS.videoMaxMbMax;
+
+    if (!valid) {
+      setMediaDefaultsMessageTone("error");
+      setMediaDefaultsMessage("אחת מהגדרות המדיה אינה בטווח המותר.");
+      return;
+    }
+
+    setMediaDefaultsSaving(true);
+    setMediaDefaultsMessage(null);
+    const { error } = await supabase
+      .from("system_media_settings")
+      .update({
+        ...values,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", 1);
+
+    if (error) {
+      setMediaDefaultsMessageTone("error");
+      setMediaDefaultsMessage(`שמירת ברירות המחדל נכשלה. ${formatSupabaseError(error)}`);
+    } else {
+      setMediaDefaultsMessageTone("success");
+      setMediaDefaultsMessage("ברירות המחדל לאירועים חדשים נשמרו.");
+    }
+    setMediaDefaultsSaving(false);
+  }
+
   async function saveEvent() {
     if (!user || !selectedCommunity) return;
 
@@ -4203,6 +4536,10 @@ export default function Home() {
     const cleanDescription = eventDescription.trim();
     const startsAtDate = new Date(eventDateTime);
     const parsedParticipantLimit = Number.parseInt(eventParticipantLimit, 10);
+    const parsedGalleryImageLimit = Number.parseInt(eventGalleryImageLimit, 10);
+    const parsedGalleryImageMaxMb = Number.parseFloat(eventGalleryImageMaxMb);
+    const parsedGalleryVideoLimit = Number.parseInt(eventGalleryVideoLimit, 10);
+    const parsedGalleryVideoMaxMb = Number.parseFloat(eventGalleryVideoMaxMb);
     let endsAtDate: Date | null = null;
 
     if (cleanTitle.length < 2) {
@@ -4243,6 +4580,46 @@ export default function Home() {
       return;
     }
 
+    if (
+      !Number.isInteger(parsedGalleryImageLimit) ||
+      parsedGalleryImageLimit < MEDIA_LIMITS.imageCountMin ||
+      parsedGalleryImageLimit > MEDIA_LIMITS.imageCountMax
+    ) {
+      setMessageTone("error");
+      setMessage(`מספר התמונות צריך להיות בין ${MEDIA_LIMITS.imageCountMin} ל־${MEDIA_LIMITS.imageCountMax}.`);
+      return;
+    }
+
+    if (
+      !Number.isFinite(parsedGalleryImageMaxMb) ||
+      parsedGalleryImageMaxMb < MEDIA_LIMITS.imageMaxMbMin ||
+      parsedGalleryImageMaxMb > MEDIA_LIMITS.imageMaxMbMax
+    ) {
+      setMessageTone("error");
+      setMessage(`גודל תמונה מכווצת צריך להיות בין ${MEDIA_LIMITS.imageMaxMbMin} ל־${MEDIA_LIMITS.imageMaxMbMax} מגה.`);
+      return;
+    }
+
+    if (
+      !Number.isInteger(parsedGalleryVideoLimit) ||
+      parsedGalleryVideoLimit < MEDIA_LIMITS.videoCountMin ||
+      parsedGalleryVideoLimit > MEDIA_LIMITS.videoCountMax
+    ) {
+      setMessageTone("error");
+      setMessage(`מספר הסרטונים צריך להיות בין ${MEDIA_LIMITS.videoCountMin} ל־${MEDIA_LIMITS.videoCountMax}.`);
+      return;
+    }
+
+    if (
+      !Number.isFinite(parsedGalleryVideoMaxMb) ||
+      parsedGalleryVideoMaxMb < MEDIA_LIMITS.videoMaxMbMin ||
+      parsedGalleryVideoMaxMb > MEDIA_LIMITS.videoMaxMbMax
+    ) {
+      setMessageTone("error");
+      setMessage(`גודל סרטון מכווץ צריך להיות בין ${MEDIA_LIMITS.videoMaxMbMin} ל־${MEDIA_LIMITS.videoMaxMbMax} מגה.`);
+      return;
+    }
+
     if (eventBringMode === "planned" && eventBringNeedDrafts.length === 0) {
       setMessageTone("error");
       setMessage("בטבלה מוגדרת מראש יש להוסיף לפחות פריט אחד.");
@@ -4273,7 +4650,6 @@ export default function Home() {
             eventImage.blob,
           );
         } catch (error) {
-          console.error("Event image upload failed", error);
           setMessageTone("error");
           setMessage("העלאת תמונת האירוע לא הצליחה. נסו שוב.");
           setSavingEvent(false);
@@ -4291,6 +4667,10 @@ export default function Home() {
           ends_at: endsAt,
           participant_limit: participantLimit,
           bring_mode: eventBringMode,
+          gallery_image_limit: parsedGalleryImageLimit,
+          gallery_image_max_mb: parsedGalleryImageMaxMb,
+          gallery_video_limit: parsedGalleryVideoLimit,
+          gallery_video_max_mb: parsedGalleryVideoMaxMb,
           image_url: imageUrl,
         })
         .eq("id", existingEvent.id);
@@ -4340,6 +4720,10 @@ export default function Home() {
       ends_at: endsAt,
       participant_limit: participantLimit,
       bring_mode: eventBringMode,
+      gallery_image_limit: parsedGalleryImageLimit,
+      gallery_image_max_mb: parsedGalleryImageMaxMb,
+      gallery_video_limit: parsedGalleryVideoLimit,
+      gallery_video_max_mb: parsedGalleryVideoMaxMb,
       image_url: cloneSourceEvent?.image_url ?? null,
       status: "active",
       created_by: user.id,
@@ -4378,7 +4762,6 @@ export default function Home() {
 
         if (imageUpdateError) throw imageUpdateError;
       } catch (error) {
-        console.error("Event image upload failed", error);
         imageUploadFailed = true;
       }
     }
@@ -4831,10 +5214,17 @@ export default function Home() {
   );
   const galleryCanUpload = Boolean(
     selectedEvent &&
-      canManageEvents &&
+      selectedCommunity &&
+      (selectedCommunity.is_member || currentUserCommunityMembership || isSystemAdminEmail(user.email)) &&
       new Date(selectedEvent.starts_at).getTime() <= Date.now() &&
-      (!selectedEventIsCancelled || canDeleteAnyEventAttendance),
+      (!selectedEventIsCancelled || canManageEvents),
   );
+  const galleryImageLimit = selectedEvent?.gallery_image_limit ?? mediaDefaults.default_gallery_image_limit;
+  const galleryImageMaxMb = selectedEvent?.gallery_image_max_mb ?? mediaDefaults.default_gallery_image_max_mb;
+  const galleryVideoLimit = selectedEvent?.gallery_video_limit ?? mediaDefaults.default_gallery_video_limit;
+  const galleryVideoMaxMb = selectedEvent?.gallery_video_max_mb ?? mediaDefaults.default_gallery_video_max_mb;
+  const galleryImageMaxBytes = megabytesToBytes(galleryImageMaxMb);
+  const galleryVideoMaxBytes = megabytesToBytes(galleryVideoMaxMb);
   const galleryImageCount = galleryPhotos.filter((item) => item.media_type === "image").length;
   const galleryVideoCount = galleryPhotos.filter((item) => item.media_type === "video").length;
   const cloneableWholeEvents = [...communityEvents].sort(
@@ -4875,6 +5265,10 @@ export default function Home() {
           eventBringNeedDrafts.some((draft) => !draft.id) ||
           eventHasParticipantLimit !== (editingEvent.participant_limit !== null) ||
           eventParticipantLimit !== (editingEvent.participant_limit?.toString() ?? "") ||
+          eventGalleryImageLimit !== String(editingEvent.gallery_image_limit ?? mediaDefaults.default_gallery_image_limit) ||
+          eventGalleryImageMaxMb !== String(editingEvent.gallery_image_max_mb ?? mediaDefaults.default_gallery_image_max_mb) ||
+          eventGalleryVideoLimit !== String(editingEvent.gallery_video_limit ?? mediaDefaults.default_gallery_video_limit) ||
+          eventGalleryVideoMaxMb !== String(editingEvent.gallery_video_max_mb ?? mediaDefaults.default_gallery_video_max_mb) ||
           eventLocation !== editingEvent.location ||
           eventDescription !== editingEvent.description ||
           eventImage
@@ -4885,6 +5279,10 @@ export default function Home() {
         eventBringNeedDrafts.length > 0 ||
         eventHasParticipantLimit ||
         eventParticipantLimit ||
+        eventGalleryImageLimit !== String(mediaDefaults.default_gallery_image_limit) ||
+        eventGalleryImageMaxMb !== String(mediaDefaults.default_gallery_image_max_mb) ||
+        eventGalleryVideoLimit !== String(mediaDefaults.default_gallery_video_limit) ||
+        eventGalleryVideoMaxMb !== String(mediaDefaults.default_gallery_video_max_mb) ||
         eventLocation ||
         eventDescription ||
         eventImage ||
@@ -5683,7 +6081,7 @@ export default function Home() {
                       ref={profileImageInputRef}
                       className="hidden-file-input"
                       type="file"
-                      accept="image/*"
+                      accept="image/*,.heic,.heif"
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         event.target.value = "";
@@ -5698,7 +6096,7 @@ export default function Home() {
                       >
                         {profile.avatar_url || profileImage ? "החלפת תמונה" : "צירוף תמונה"}
                       </button>
-                      <small>קובץ תמונה עד 3MB. התמונה תכווץ לפני ההעלאה.</small>
+                      <small>התמונה תכווץ לפני ההעלאה. הקובץ לאחר הכיווץ לא יעלה על 1MB.</small>
                     </div>
                   </div>
 
@@ -5765,6 +6163,66 @@ export default function Home() {
                   </div>
                 </div>
               ) : null}
+
+              {isSystemAdminEmail(user.email) && (
+                <section className="system-media-settings-section">
+                  <div className="section-heading-compact">
+                    <p className="section-kicker">מנהל המערכת</p>
+                    <h2>ברירות מחדל למדיה באירועים חדשים</h2>
+                    <small>הערכים יועתקו לכל אירוע חדש. מנהל האירוע יוכל לשנות אותם בעריכת האירוע.</small>
+                  </div>
+                  <div className="system-media-settings-grid">
+                    <label>
+                      <span>מספר תמונות</span>
+                      <input
+                        type="number"
+                        min={MEDIA_LIMITS.imageCountMin}
+                        max={MEDIA_LIMITS.imageCountMax}
+                        value={mediaDefaults.default_gallery_image_limit}
+                        onChange={(event) => setMediaDefaults((current) => ({ ...current, default_gallery_image_limit: Number(event.target.value) }))}
+                      />
+                    </label>
+                    <label>
+                      <span>גודל תמונה מכווצת במגה</span>
+                      <input
+                        type="number"
+                        min={MEDIA_LIMITS.imageMaxMbMin}
+                        max={MEDIA_LIMITS.imageMaxMbMax}
+                        step="0.1"
+                        value={mediaDefaults.default_gallery_image_max_mb}
+                        onChange={(event) => setMediaDefaults((current) => ({ ...current, default_gallery_image_max_mb: Number(event.target.value) }))}
+                      />
+                    </label>
+                    <label>
+                      <span>מספר סרטונים</span>
+                      <input
+                        type="number"
+                        min={MEDIA_LIMITS.videoCountMin}
+                        max={MEDIA_LIMITS.videoCountMax}
+                        value={mediaDefaults.default_gallery_video_limit}
+                        onChange={(event) => setMediaDefaults((current) => ({ ...current, default_gallery_video_limit: Number(event.target.value) }))}
+                      />
+                    </label>
+                    <label>
+                      <span>גודל סרטון מכווץ במגה</span>
+                      <input
+                        type="number"
+                        min={MEDIA_LIMITS.videoMaxMbMin}
+                        max={MEDIA_LIMITS.videoMaxMbMax}
+                        step="0.5"
+                        value={mediaDefaults.default_gallery_video_max_mb}
+                        onChange={(event) => setMediaDefaults((current) => ({ ...current, default_gallery_video_max_mb: Number(event.target.value) }))}
+                      />
+                    </label>
+                  </div>
+                  <div className="form-actions">
+                    <button type="button" className="primary-button" onClick={() => void saveMediaDefaults()} disabled={mediaDefaultsSaving}>
+                      {mediaDefaultsSaving ? "שומרים..." : "שמירת ברירות המחדל"}
+                    </button>
+                  </div>
+                  {mediaDefaultsMessage && <p className={`message-box ${mediaDefaultsMessageTone}`}>{mediaDefaultsMessage}</p>}
+                </section>
+              )}
 
               <section className="personal-dashboard-section">
                 <div className="section-heading-compact">
@@ -6230,7 +6688,7 @@ export default function Home() {
                 type="button"
                 className="back-button"
                 onClick={closeCommunityForm}
-                disabled={savingCommunity}
+                disabled={savingCommunity || communityVideoNotice?.tone === "info"}
               >
                 חזרה
               </button>
@@ -6249,7 +6707,7 @@ export default function Home() {
                   ref={communityImageInputRef}
                   className="hidden-file-input"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.heic,.heif"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.target.value = "";
@@ -6263,7 +6721,7 @@ export default function Home() {
                 >
                   {communityFormImageUrl ? "החלפת תמונה" : "העלאת תמונה"}
                 </button>
-                <small>התמונה תכווץ לפני ההעלאה. גודל מקסימלי 3MB.</small>
+                <small>התמונה תכווץ לפני ההעלאה. הקובץ לאחר הכיווץ לא יעלה על 1MB.</small>
 
                 {communityFormImageUrl && (
                   <button
@@ -6285,21 +6743,23 @@ export default function Home() {
                   ref={communityVideoInputRef}
                   className="hidden-file-input"
                   type="file"
-                  accept="video/mp4,video/webm,video/quicktime,video/*"
+                  accept="video/mp4,video/webm,video/quicktime,video/x-m4v,video/*"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.target.value = "";
-                    if (file) prepareCommunityVideo(file);
+                    if (file) void prepareCommunityVideo(file);
                   }}
                 />
                 <button
                   type="button"
                   className="primary-button upload-image-button"
                   onClick={() => communityVideoInputRef.current?.click()}
+                  disabled={communityVideoNotice?.tone === "info"}
                 >
                   {communityFormVideoUrl ? "החלפת סרטון" : "העלאת סרטון"}
                 </button>
-                <small>סרטון אחד בלבד. עד 50MB ובפורמט MP4 / MOV / WebM.</small>
+                <small>הסרטון יכווץ לפני ההעלאה. הקובץ לאחר הכיווץ לא יעלה על 20MB.</small>
+                <VideoProcessStatus notice={communityVideoNotice} />
 
                 {communityFormVideoUrl && (
                   <video className="selected-community-video" src={communityFormVideoUrl} controls preload="metadata" />
@@ -6355,7 +6815,7 @@ export default function Home() {
                 type="button"
                 className="secondary-button"
                 onClick={closeCommunityForm}
-                disabled={savingCommunity}
+                disabled={savingCommunity || communityVideoNotice?.tone === "info"}
               >
                 סגירה ללא שמירה
               </button>
@@ -6363,7 +6823,7 @@ export default function Home() {
                 type="button"
                 className={`primary-button${communityFormIsDirty ? " save-button-dirty" : ""}`}
                 onClick={() => void saveCommunity()}
-                disabled={savingCommunity}
+                disabled={savingCommunity || communityVideoNotice?.tone === "info"}
               >
                 {savingCommunity
                   ? "שומרים..."
@@ -6379,7 +6839,7 @@ export default function Home() {
                   type="button"
                   className="danger-button"
                   onClick={() => setPendingMemberAction({ type: "delete_circle", community: editingCommunity })}
-                  disabled={savingCommunity}
+                  disabled={savingCommunity || communityVideoNotice?.tone === "info"}
                 >
                   מחיקת המעגל
                 </button>
@@ -7008,7 +7468,7 @@ export default function Home() {
               <div className="section-heading-compact gallery-heading">
                 <div>
                   <h2>גלריית האירוע</h2>
-                  <small>{galleryImageCount}/{MAX_GALLERY_IMAGES} תמונות · {galleryVideoCount}/1 סרטון</small>
+                  <small>{galleryImageCount}/{galleryImageLimit} תמונות עד {galleryImageMaxMb}MB · {galleryVideoCount}/{galleryVideoLimit} סרטונים עד {galleryVideoMaxMb}MB</small>
                 </div>
                 {galleryCanUpload && (
                   <div className="gallery-upload-actions">
@@ -7016,7 +7476,7 @@ export default function Home() {
                       ref={galleryImageInputRef}
                       className="hidden-file-input"
                       type="file"
-                      accept="image/*"
+                      accept="image/*,.heic,.heif"
                       multiple
                       onChange={(event) => {
                         const files = Array.from(event.target.files ?? []) as File[];
@@ -7028,17 +7488,25 @@ export default function Home() {
                       ref={galleryVideoInputRef}
                       className="hidden-file-input"
                       type="file"
-                      accept="video/mp4,video/webm,video/quicktime"
+                      accept="video/mp4,video/webm,video/quicktime,video/x-m4v,video/*,.heic,.heif,image/heic,image/heif"
+                      multiple
                       onChange={(event) => {
-                        const file = event.target.files?.[0];
+                        const files = Array.from(event.target.files ?? []) as File[];
                         event.target.value = "";
-                        if (file) void uploadGalleryMedia(file, "video");
+                        if (files.length > 0) {
+                          const imageFiles = files.filter((file) => isSupportedImageFile(file));
+                          const videoFiles = files.filter((file) => !isSupportedImageFile(file));
+                          void (async () => {
+                            if (imageFiles.length > 0) await uploadGalleryImages(imageFiles);
+                            if (videoFiles.length > 0) await uploadGalleryVideos(videoFiles);
+                          })();
+                        }
                       }}
                     />
                     <button
                       type="button"
                       className="primary-button compact-button"
-                      disabled={galleryBusy || galleryImageCount >= MAX_GALLERY_IMAGES}
+                      disabled={galleryBusy || galleryImageCount >= galleryImageLimit}
                       onClick={() => galleryImageInputRef.current?.click()}
                     >
                       הוספת תמונות
@@ -7046,18 +7514,19 @@ export default function Home() {
                     <button
                       type="button"
                       className="secondary-button compact-button gallery-video-button"
-                      disabled={galleryBusy || galleryVideoCount >= 1}
-                      title={galleryVideoCount >= 1 ? "כבר קיים סרטון אחד בגלריה" : "הוספת סרטון"}
+                      disabled={galleryBusy || galleryVideoCount >= galleryVideoLimit}
+                      title={galleryVideoCount >= galleryVideoLimit ? `כבר קיימים ${galleryVideoLimit} סרטונים בגלריה` : "הוספת סרטונים; קובץ HEIC/HEIF יתווסף כתמונה"}
                       onClick={() => galleryVideoInputRef.current?.click()}
                     >
-                      הוספת סרטון
+                      הוספת סרטונים
                     </button>
                   </div>
                 )}
               </div>
+              <VideoProcessStatus notice={galleryVideoNotice} />
               {!galleryCanUpload && (
                 <p className="gallery-locked-note">
-                  רק מנהלי/ות המעגל יכולים להוסיף תמונות וסרטון לאחר שהאירוע התחיל.
+                  כל חברי/ות המעגל יכולים להוסיף תמונות וסרטונים לאחר שהאירוע התחיל.
                 </p>
               )}
               {galleryLoading ? (
@@ -7180,7 +7649,7 @@ export default function Home() {
                   ref={eventImageInputRef}
                   className="hidden-file-input"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.heic,.heif"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.target.value = "";
@@ -7282,6 +7751,57 @@ export default function Home() {
                     />
                   </label>
                 )}
+              </div>
+
+              <div className="event-media-settings-panel">
+                <div className="section-heading-compact">
+                  <h3>מגבלות גלריית האירוע</h3>
+                  <small>ההגבלות נבדקות רק לאחר כיווץ הקובץ.</small>
+                </div>
+                <div className="event-media-settings-grid">
+                  <label>
+                    <span>מספר תמונות שניתן להעלות</span>
+                    <input
+                      type="number"
+                      min={MEDIA_LIMITS.imageCountMin}
+                      max={MEDIA_LIMITS.imageCountMax}
+                      value={eventGalleryImageLimit}
+                      onChange={(event) => setEventGalleryImageLimit(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>גודל תמונה מכווצת מקסימלי במגה</span>
+                    <input
+                      type="number"
+                      min={MEDIA_LIMITS.imageMaxMbMin}
+                      max={MEDIA_LIMITS.imageMaxMbMax}
+                      step="0.1"
+                      value={eventGalleryImageMaxMb}
+                      onChange={(event) => setEventGalleryImageMaxMb(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>מספר סרטונים שניתן להעלות</span>
+                    <input
+                      type="number"
+                      min={MEDIA_LIMITS.videoCountMin}
+                      max={MEDIA_LIMITS.videoCountMax}
+                      value={eventGalleryVideoLimit}
+                      onChange={(event) => setEventGalleryVideoLimit(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>גודל סרטון מכווץ מקסימלי במגה</span>
+                    <input
+                      type="number"
+                      min={MEDIA_LIMITS.videoMaxMbMin}
+                      max={MEDIA_LIMITS.videoMaxMbMax}
+                      step="0.5"
+                      value={eventGalleryVideoMaxMb}
+                      onChange={(event) => setEventGalleryVideoMaxMb(event.target.value)}
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="bring-setting-panel">
