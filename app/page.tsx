@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.9.6";
+const APP_VERSION = "v1.0.10.0";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -285,6 +285,17 @@ function ProfileMenuIcon() {
       <circle cx="12" cy="8" r="4" fill="currentColor" />
       <path d="M4.5 21a7.5 7.5 0 0 1 15 0Z" fill="currentColor" />
     </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <img
+      src="/logout-icon.png"
+      alt=""
+      aria-hidden="true"
+      className="logout-icon-image"
+    />
   );
 }
 
@@ -4626,13 +4637,13 @@ export default function Home() {
             />
             <button
               type="button"
-              className="icon-button"
+              className="icon-button logout-button"
               onClick={signOut}
               disabled={authBusy}
               aria-label="התנתקות"
               title="התנתקות"
             >
-              ↪
+              <LogoutIcon />
             </button>
           </div>
 

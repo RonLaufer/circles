@@ -5457,3 +5457,19 @@ body.editor-screen-open {
     margin-inline-start: 0;
   }
 }
+
+
+/* circles98: logout icon without surrounding circle */
+.logout-button,
+.logout-button:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: none;
+}
+
+
+.logout-icon-image {
+  display: block;
+  width: 28px;
+  height: auto;
+  object-fit: contain;
+}
