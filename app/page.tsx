@@ -21,7 +21,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.0.10.2";
+const APP_VERSION = "v1.1.2.2";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -91,6 +91,7 @@ type CommunityMember = {
   role: CommunityRole;
   joined_at: string;
   full_name: string;
+  email: string | null;
   city: string;
   phone: string;
   avatar_url: string | null;
@@ -142,6 +143,14 @@ type CommunityEvent = {
 
 type AttendanceStatus = "going" | "maybe" | "not_going";
 
+type WhatsAppComposerContext = {
+  type: "community" | "event";
+  title: string;
+  details: string | null;
+  shareUrl: string;
+  imageUrl: string | null;
+};
+
 type EventAttendance = {
   event_id: string;
   user_id: string;
@@ -149,6 +158,7 @@ type EventAttendance = {
   created_at: string;
   updated_at: string;
   full_name: string;
+  email: string | null;
   city: string;
   phone: string;
   community_role: CommunityRole | null;
@@ -213,6 +223,30 @@ type EventGalleryPhoto = {
   full_name: string;
 };
 
+type EventConversationTopic = {
+  id: string;
+  event_id: string;
+  slug: string;
+  title: string;
+  sort_order: number;
+  created_at: string;
+};
+
+type EventConversationMessage = {
+  id: string;
+  event_id: string;
+  topic_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  full_name: string;
+  avatar_url: string | null;
+  google_avatar_url: string | null;
+};
+
+const CONVERSATION_EMOJIS = ["😀", "😂", "😢", "❤️", "👍", "🙏", "🤗", "🎉", "🚗"];
+
 type PersonalEventRow = {
   event: CommunityEvent;
   community: Community;
@@ -228,6 +262,7 @@ type PendingMemberAction =
   | { type: "cancel_event"; event: CommunityEvent; cancel: boolean }
   | { type: "delete_circle"; community: Community }
   | { type: "delete_gallery"; photo: EventGalleryPhoto }
+  | { type: "delete_conversation_message"; message: EventConversationMessage }
   | { type: "delete_notification"; notification: AppNotification }
   | { type: "delete_all_notifications" };
 
@@ -296,6 +331,84 @@ function LogoutIcon() {
       aria-hidden="true"
       className="logout-icon-image"
     />
+  );
+}
+
+function ConversationComposer({
+  topicId,
+  topicTitle,
+  onSend,
+}: {
+  topicId: string;
+  topicTitle: string;
+  onSend: (body: string) => Promise<boolean>;
+}) {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState(false);
+  const draft = drafts[topicId] ?? "";
+
+  function setDraft(value: string) {
+    setDrafts((current) => ({ ...current, [topicId]: value }));
+  }
+
+  function insertEmoji(emoji: string) {
+    const input = inputRef.current;
+    const start = input?.selectionStart ?? draft.length;
+    const end = input?.selectionEnd ?? start;
+    const nextValue = `${draft.slice(0, start)}${emoji}${draft.slice(end)}`;
+    setDraft(nextValue);
+    requestAnimationFrame(() => {
+      const nextCursorPosition = start + emoji.length;
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    });
+  }
+
+  async function submitMessage() {
+    const body = draft.trim();
+    if (!body || sending) return;
+    setSending(true);
+    const sent = await onSend(body);
+    if (sent) setDraft("");
+    setSending(false);
+  }
+
+  return (
+    <div className="conversation-composer">
+      <div className="conversation-emoji-bar" aria-label="הוספת אמוג׳י">
+        {CONVERSATION_EMOJIS.map((emoji) => (
+          <button
+            type="button"
+            onClick={() => insertEmoji(emoji)}
+            aria-label={`הוספת ${emoji}`}
+            title={`הוספת ${emoji}`}
+            key={emoji}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+      <textarea
+        ref={inputRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        maxLength={1200}
+        rows={3}
+        placeholder={`כתיבת הודעה בנושא ${topicTitle}`}
+      />
+      <div className="conversation-composer-actions">
+        <span>{draft.length}/1200</span>
+        <button
+          type="button"
+          className="primary-button compact-button"
+          onClick={() => void submitMessage()}
+          disabled={sending || !draft.trim()}
+        >
+          שליחת הודעה
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -790,6 +903,18 @@ function formatEventDate(startsAt: string, endsAt?: string | null) {
   return `${datePart} משעה ${startTime} עד ${timeFormatter.format(end)}`;
 }
 
+function formatWhatsAppEventDateTime(startsAt: string) {
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return "";
+  const datePart = `${start.getDate()}/${start.getMonth() + 1}/${start.getFullYear()}`;
+  const timePart = new Intl.DateTimeFormat("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(start);
+  return `${datePart} ${timePart}`;
+}
+
 function getEventDisplayTitle(event: Pick<CommunityEvent, "title" | "starts_at" | "ends_at">) {
   const dateAndTime = formatEventDate(event.starts_at, event.ends_at);
   return dateAndTime ? `${event.title} ${dateAndTime}` : event.title;
@@ -832,6 +957,8 @@ export default function Home() {
   const eventImageInputRef = useRef<HTMLInputElement | null>(null);
   const galleryImageInputRef = useRef<HTMLInputElement | null>(null);
   const galleryVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const conversationMessageListRef = useRef<HTMLDivElement | null>(null);
+  const conversationShouldScrollToEndRef = useRef(false);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [fullName, setFullName] = useState("");
@@ -901,6 +1028,8 @@ export default function Home() {
   const [pendingMemberAction, setPendingMemberAction] = useState<PendingMemberAction | null>(null);
   const [memberActionBusy, setMemberActionBusy] = useState(false);
   const [systemAdminJoinBusy, setSystemAdminJoinBusy] = useState(false);
+  const [whatsAppComposer, setWhatsAppComposer] = useState<WhatsAppComposerContext | null>(null);
+  const [whatsAppMessage, setWhatsAppMessage] = useState("");
   const [shareCommunity, setShareCommunity] = useState<Community | null>(null);
   const [shareEvent, setShareEvent] = useState<CommunityEvent | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
@@ -912,6 +1041,15 @@ export default function Home() {
   const [galleryPhotos, setGalleryPhotos] = useState<EventGalleryPhoto[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  const [conversationTopics, setConversationTopics] = useState<EventConversationTopic[]>([]);
+  const [conversationMessages, setConversationMessages] = useState<EventConversationMessage[]>([]);
+  const [activeConversationTopicId, setActiveConversationTopicId] = useState<string | null>(null);
+  const [conversationLoading, setConversationLoading] = useState(false);
+  const [conversationMessage, setConversationMessage] = useState<string | null>(null);
+  const [conversationMessageTone, setConversationMessageTone] = useState<"error" | "success">("error");
+  const [editingConversationMessageId, setEditingConversationMessageId] = useState<string | null>(null);
+  const [editingConversationBody, setEditingConversationBody] = useState("");
+  const [conversationBusyMessageId, setConversationBusyMessageId] = useState<string | null>(null);
   const [cloneEventId, setCloneEventId] = useState("");
   const [directCloneEventId, setDirectCloneEventId] = useState<string | null>(null);
   const [personalEvents, setPersonalEvents] = useState<PersonalEventRow[]>([]);
@@ -1126,7 +1264,7 @@ export default function Home() {
       const { data: profileRows, error: profilesError } = userIds.length
         ? await supabase
             .from("profiles")
-            .select("id,full_name,city,phone,avatar_url,google_avatar_url")
+            .select("id,full_name,email,city,phone,avatar_url,google_avatar_url")
             .in("id", userIds)
         : { data: [], error: null };
 
@@ -1145,6 +1283,7 @@ export default function Home() {
           role: membership.role as CommunityRole,
           joined_at: membership.joined_at,
           full_name: memberProfile?.full_name || "משתמש",
+          email: memberProfile?.email ?? null,
           city: memberProfile?.city ?? "",
           phone: memberProfile?.phone ?? "",
           avatar_url: memberProfile?.avatar_url ?? null,
@@ -1156,7 +1295,9 @@ export default function Home() {
         const firstManager = first.role === "owner" || first.role === "admin" ? 0 : 1;
         const secondManager = second.role === "owner" || second.role === "admin" ? 0 : 1;
         if (firstManager !== secondManager) return firstManager - secondManager;
-        return new Date(first.joined_at).getTime() - new Date(second.joined_at).getTime();
+        return first.full_name.localeCompare(second.full_name, "he", {
+          sensitivity: "base",
+        });
       });
       setCommunityMembers(mappedMembers);
 
@@ -1239,7 +1380,7 @@ export default function Home() {
       const { data: profileRows, error: profilesError } = userIds.length
         ? await supabase
             .from("profiles")
-            .select("id,full_name,city,phone,avatar_url,google_avatar_url")
+            .select("id,full_name,email,city,phone,avatar_url,google_avatar_url")
             .in("id", userIds)
         : { data: [], error: null };
 
@@ -1260,6 +1401,7 @@ export default function Home() {
           ...attendance,
           status: attendance.status as AttendanceStatus,
           full_name: attendeeProfile?.full_name || "משתמש",
+          email: attendeeProfile?.email ?? null,
           city: attendeeProfile?.city ?? "",
           phone: attendeeProfile?.phone ?? "",
           community_role: roleByUserId.get(attendance.user_id) ?? null,
@@ -1403,6 +1545,90 @@ export default function Home() {
     setGalleryLoading(false);
   }, [supabase]);
 
+  const loadEventConversations = useCallback(async (
+    eventId: string,
+    options: { showLoading?: boolean; scrollToEnd?: boolean } = {},
+  ) => {
+    const showLoading = options.showLoading !== false;
+    if (options.scrollToEnd !== false) conversationShouldScrollToEndRef.current = true;
+    if (showLoading) {
+      setConversationLoading(true);
+      setConversationMessage(null);
+    }
+
+    const { data: topicRows, error: topicsError } = await supabase
+      .from("event_conversation_topics")
+      .select("id,event_id,slug,title,sort_order,created_at")
+      .eq("event_id", eventId)
+      .order("sort_order", { ascending: true });
+
+    if (topicsError) {
+      console.error("Loading event conversation topics failed", topicsError);
+      setConversationTopics([]);
+      setConversationMessages([]);
+      setConversationMessageTone("error");
+      setConversationMessage(
+        topicsError.code === "42P01"
+          ? "יש להריץ את קובץ ה־SQL של circles119 ב־Supabase."
+          : "לא הצלחנו לטעון את השיחות באירוע.",
+      );
+      if (showLoading) setConversationLoading(false);
+      return;
+    }
+
+    const topics = (topicRows ?? []) as EventConversationTopic[];
+    setConversationTopics(topics);
+    setActiveConversationTopicId((currentTopicId) =>
+      topics.some((topic) => topic.id === currentTopicId)
+        ? currentTopicId
+        : topics[0]?.id ?? null,
+    );
+
+    const { data: messageRows, error: messagesError } = await supabase
+      .from("event_conversation_messages")
+      .select("id,event_id,topic_id,user_id,body,created_at,updated_at")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: true });
+
+    if (messagesError) {
+      console.error("Loading event conversation messages failed", messagesError);
+      setConversationMessages([]);
+      setConversationMessageTone("error");
+      setConversationMessage("לא הצלחנו לטעון את ההודעות באירוע.");
+      if (showLoading) setConversationLoading(false);
+      return;
+    }
+
+    const userIds = Array.from(new Set((messageRows ?? []).map((row) => row.user_id)));
+    const { data: profileRows, error: profilesError } = userIds.length
+      ? await supabase
+          .from("profiles")
+          .select("id,full_name,avatar_url,google_avatar_url")
+          .in("id", userIds)
+      : { data: [], error: null };
+
+    if (profilesError) {
+      console.error("Loading conversation author profiles failed", profilesError);
+    }
+
+    const profilesById = new Map(
+      (profileRows ?? []).map((row) => [row.id, row]),
+    );
+
+    setConversationMessages(
+      (messageRows ?? []).map((row) => {
+        const authorProfile = profilesById.get(row.user_id);
+        return {
+          ...row,
+          full_name: authorProfile?.full_name || "משתמש",
+          avatar_url: authorProfile?.avatar_url ?? null,
+          google_avatar_url: authorProfile?.google_avatar_url ?? null,
+        };
+      }) as EventConversationMessage[],
+    );
+    if (showLoading) setConversationLoading(false);
+  }, [supabase]);
+
   const loadPersonalDashboard = useCallback(async () => {
     if (!user || communities.length === 0) {
       setPersonalEvents([]);
@@ -1414,7 +1640,8 @@ export default function Home() {
     const { data: attendanceRows, error: attendanceError } = await supabase
       .from("event_attendance")
       .select("event_id,user_id,status,created_at,updated_at")
-      .eq("user_id", user.id);
+      .eq("user_id", user.id)
+      .in("status", ["going", "maybe"]);
 
     const eventIds = Array.from(new Set((attendanceRows ?? []).map((row) => row.event_id)));
     const { data: eventRows, error: eventsError } = eventIds.length
@@ -1979,6 +2206,10 @@ export default function Home() {
     setSelectedEventId(null);
     setEventAttendance([]);
     setAttendanceMessage(null);
+    setConversationTopics([]);
+    setConversationMessages([]);
+    setActiveConversationTopicId(null);
+    setConversationMessage(null);
   }, [selectedCommunityId]);
 
   useEffect(() => {
@@ -2008,6 +2239,13 @@ export default function Home() {
       setBringItemName("");
         setBringMessage(null);
       setGalleryPhotos([]);
+      setConversationTopics([]);
+      setConversationMessages([]);
+      setActiveConversationTopicId(null);
+      setConversationMessage(null);
+      setEditingConversationMessageId(null);
+      setEditingConversationBody("");
+      setConversationBusyMessageId(null);
       return;
     }
 
@@ -2017,9 +2255,42 @@ export default function Home() {
         loadEventAttendance(selectedEventId),
         loadEventBringData(selectedEventId),
         loadEventGallery(selectedEventId),
+        loadEventConversations(selectedEventId),
       ]);
     }
-  }, [communityEvents, loadEventAttendance, loadEventBringData, loadEventGallery, selectedEventId]);
+  }, [communityEvents, loadEventAttendance, loadEventBringData, loadEventConversations, loadEventGallery, selectedEventId]);
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+
+    const channel = supabase
+      .channel(`event-conversations-${selectedEventId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "event_conversation_messages",
+          filter: `event_id=eq.${selectedEventId}`,
+        },
+        () => {
+          void loadEventConversations(selectedEventId, { showLoading: false, scrollToEnd: false });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [loadEventConversations, selectedEventId, supabase]);
+
+  useLayoutEffect(() => {
+    if (!conversationShouldScrollToEndRef.current) return;
+    const messageList = conversationMessageListRef.current;
+    if (!messageList) return;
+    messageList.scrollTop = messageList.scrollHeight;
+    conversationShouldScrollToEndRef.current = false;
+  }, [activeConversationTopicId, conversationMessages, conversationLoading]);
 
   useEffect(() => {
     const targetEvent = communityEvents.find((event) => event.id === selectedEventId) ?? null;
@@ -2350,6 +2621,7 @@ export default function Home() {
     if (result.result === "pending") {
       setInviteStatus("pending");
       setJoinBusy(false);
+      void notifyManagersAboutPendingJoin(result.community_id);
       return;
     }
 
@@ -2535,9 +2807,13 @@ export default function Home() {
     if (!user) return false;
 
     setMessage(null);
-    const { error } = await supabase.rpc("leave_community", {
-      target_community_id: community.id,
-    });
+    const { error } = isSystemAdminEmail(user.email)
+      ? await supabase.rpc("system_admin_leave_community", {
+          target_community_id: community.id,
+        })
+      : await supabase.rpc("leave_community", {
+          target_community_id: community.id,
+        });
 
     if (error) {
       console.error("Leaving circle failed", error);
@@ -2582,6 +2858,8 @@ export default function Home() {
       succeeded = await deleteCommunityCircle(pendingMemberAction.community);
     } else if (pendingMemberAction.type === "delete_gallery") {
       succeeded = await deleteGalleryPhoto(pendingMemberAction.photo);
+    } else if (pendingMemberAction.type === "delete_conversation_message") {
+      succeeded = await deleteConversationMessage(pendingMemberAction.message);
     } else if (pendingMemberAction.type === "delete_notification") {
       succeeded = await deleteNotification(pendingMemberAction.notification);
     } else if (pendingMemberAction.type === "delete_all_notifications") {
@@ -2936,15 +3214,22 @@ export default function Home() {
         }
       }
 
+      const communityUpdate: {
+        name: string;
+        description: string;
+        logo_url: string | null;
+        video_url: string | null;
+        requires_member_approval: boolean;
+      } = {
+        name: cleanName,
+        description: cleanDescription,
+        logo_url: logoUrl,
+        video_url: videoUrl,
+        requires_member_approval: communityRequiresApproval,
+      };
       const { data, error } = await supabase
         .from("communities")
-        .update({
-          name: cleanName,
-          description: cleanDescription,
-          logo_url: logoUrl,
-          video_url: videoUrl,
-          requires_member_approval: communityRequiresApproval,
-        })
+        .update(communityUpdate)
         .eq("id", existingCommunity.id)
         .select(
           "id,name,description,logo_url,video_url,requires_member_approval,created_by,created_at,updated_at,share_token",
@@ -3658,7 +3943,7 @@ export default function Home() {
   }
 
   async function uploadGalleryMedia(file: File, mediaType: "image" | "video") {
-    if (!selectedEvent || !selectedCommunity || !user) return;
+    if (!selectedEvent || !selectedCommunity || !user) return false;
 
     const imageCount = galleryPhotos.filter((item) => item.media_type === "image").length;
     const videoCount = galleryPhotos.filter((item) => item.media_type === "video").length;
@@ -3666,24 +3951,25 @@ export default function Home() {
     if (mediaType === "image" && imageCount >= MAX_GALLERY_IMAGES) {
       setMessageTone("error");
       setMessage(`אפשר להעלות עד ${MAX_GALLERY_IMAGES} תמונות לגלריה.`);
-      return;
+      return false;
     }
 
     if (mediaType === "video" && videoCount >= 1) {
       setMessageTone("error");
       setMessage("אפשר להעלות סרטון אחד בלבד לגלריה.");
-      return;
+      return false;
     }
 
     if (mediaType === "video" && file.size > MAX_GALLERY_VIDEO_BYTES) {
       setMessageTone("error");
       setMessage("אפשר להעלות סרטון בגודל של עד 20MB.");
-      return;
+      return false;
     }
 
     setGalleryBusy(true);
     setMessage(null);
     let objectPath = "";
+    let uploaded = false;
 
     try {
       const mediaId = crypto.randomUUID();
@@ -3729,6 +4015,7 @@ export default function Home() {
       if (error) throw error;
 
       await loadEventGallery(selectedEvent.id);
+      uploaded = true;
     } catch (error) {
       if (objectPath) {
         await supabase.storage.from("event-gallery").remove([objectPath]);
@@ -3747,6 +4034,47 @@ export default function Home() {
       }
     }
     setGalleryBusy(false);
+    return uploaded;
+  }
+
+  async function uploadGalleryImages(files: File[]) {
+    if (files.length === 0) return;
+
+    const availableSlots = Math.max(0, MAX_GALLERY_IMAGES - galleryImageCount);
+    if (availableSlots === 0) {
+      setMessageTone("error");
+      setMessage(`אפשר להעלות עד ${MAX_GALLERY_IMAGES} תמונות לגלריה.`);
+      return;
+    }
+
+    const filesToUpload = files.slice(0, availableSlots);
+    let uploadedCount = 0;
+    let failedCount = 0;
+
+    for (const file of filesToUpload) {
+      const uploaded = await uploadGalleryMedia(file, "image");
+      if (uploaded) uploadedCount += 1;
+      else failedCount += 1;
+    }
+
+    const skippedCount = files.length - filesToUpload.length;
+    if (failedCount > 0 || skippedCount > 0) {
+      setMessageTone("error");
+      setMessage(
+        [
+          uploadedCount > 0 ? `${uploadedCount} תמונות הועלו בהצלחה.` : "",
+          failedCount > 0 ? `${failedCount} תמונות לא הועלו.` : "",
+          skippedCount > 0
+            ? `${skippedCount} תמונות לא נבחרו להעלאה משום שהגלריה מוגבלת ל־${MAX_GALLERY_IMAGES} תמונות.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+    } else if (uploadedCount > 1) {
+      setMessageTone("success");
+      setMessage(`${uploadedCount} תמונות הועלו בהצלחה.`);
+    }
   }
 
   async function deleteGalleryPhoto(photo: EventGalleryPhoto) {
@@ -4101,6 +4429,73 @@ export default function Home() {
     setLegalConsentSaving(false);
   }
 
+  async function notifyManagersAboutPendingJoin(communityId: string) {
+    try {
+      const response = await fetch("/api/email/join-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ communityId }),
+      });
+
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as { message?: string } | null;
+        console.error("Sending pending join request email failed", result?.message ?? response.statusText);
+      }
+    } catch (error) {
+      console.error("Sending pending join request email failed", error);
+    }
+  }
+
+  function openCommunityWhatsAppComposer() {
+    if (!selectedCommunity) return;
+
+    setWhatsAppComposer({
+      type: "community",
+      title: selectedCommunity.name,
+      details: null,
+      shareUrl: getCommunityShareUrl(selectedCommunity.share_token),
+      imageUrl: getCommunityImageUrl(selectedCommunity.logo_url),
+    });
+    setWhatsAppMessage("");
+  }
+
+  function openEventWhatsAppComposer() {
+    if (!selectedEvent || !selectedCommunity) return;
+
+    setWhatsAppComposer({
+      type: "event",
+      title: selectedEvent.title,
+      details: formatWhatsAppEventDateTime(selectedEvent.starts_at),
+      shareUrl: getEventShareUrl(selectedEvent.share_token),
+      imageUrl: selectedEvent.image_url ?? getCommunityImageUrl(selectedCommunity.logo_url),
+    });
+    setWhatsAppMessage("");
+  }
+
+  function closeWhatsAppComposer() {
+    setWhatsAppComposer(null);
+    setWhatsAppMessage("");
+  }
+
+  function getWhatsAppComposerUrl() {
+    if (!whatsAppComposer) return "https://wa.me/";
+
+    const messageText = whatsAppMessage.trim().replaceAll("*", "");
+    const headerText = [whatsAppComposer.title, whatsAppComposer.details]
+      .filter(Boolean)
+      .join(" ")
+      .replaceAll("*", "");
+    const fullText = [
+      headerText ? `*${headerText}*` : "",
+      messageText ? `*${messageText}*` : "",
+      whatsAppComposer.shareUrl,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return `https://wa.me/?text=${encodeURIComponent(fullText)}`;
+  }
+
   const legalConsentAccepted = Boolean(
     profile?.legal_accepted_at && profile.legal_version === LEGAL_VERSION,
   );
@@ -4249,9 +4644,102 @@ export default function Home() {
   const communityFormImageUrl = communityImage?.previewUrl ?? editingCommunity?.logo_url ?? null;
   const communityFormVideoUrl = communityVideo?.previewUrl ?? editingCommunity?.video_url ?? null;
   const editingEvent = communityEvents.find((event) => event.id === editingEventId) ?? null;
+  async function sendConversationMessage(body: string) {
+    if (!user || !selectedEventId || !activeConversationTopicId) return false;
+
+    setConversationMessage(null);
+    const { error } = await supabase.from("event_conversation_messages").insert({
+      event_id: selectedEventId,
+      topic_id: activeConversationTopicId,
+      user_id: user.id,
+      body,
+    });
+
+    if (error) {
+      console.error("Sending event conversation message failed", error);
+      setConversationMessageTone("error");
+      setConversationMessage(
+        error.code === "42501"
+          ? "רק חברי המעגל יכולים להשתתף בשיחה."
+          : "לא הצלחנו לשלוח את ההודעה.",
+      );
+      return false;
+    }
+
+    conversationShouldScrollToEndRef.current = true;
+    await loadEventConversations(selectedEventId, { showLoading: false, scrollToEnd: true });
+    return true;
+  }
+
+  function startEditingConversationMessage(message: EventConversationMessage) {
+    setEditingConversationMessageId(message.id);
+    setEditingConversationBody(message.body);
+    setConversationMessage(null);
+  }
+
+  function cancelEditingConversationMessage() {
+    setEditingConversationMessageId(null);
+    setEditingConversationBody("");
+  }
+
+  async function saveConversationMessageEdit(message: EventConversationMessage) {
+    if (!user || message.user_id !== user.id || conversationBusyMessageId) return;
+    const body = editingConversationBody.trim();
+    if (!body) return;
+
+    setConversationBusyMessageId(message.id);
+    setConversationMessage(null);
+    const { error } = await supabase
+      .from("event_conversation_messages")
+      .update({ body })
+      .eq("id", message.id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Updating event conversation message failed", error);
+      setConversationMessageTone("error");
+      setConversationMessage("לא הצלחנו לעדכן את ההודעה.");
+      setConversationBusyMessageId(null);
+      return;
+    }
+
+    cancelEditingConversationMessage();
+    if (selectedEventId) await loadEventConversations(selectedEventId, { showLoading: false, scrollToEnd: false });
+    setConversationBusyMessageId(null);
+  }
+
+  async function deleteConversationMessage(message: EventConversationMessage) {
+    if (!selectedEventId || conversationBusyMessageId) return false;
+
+    setConversationBusyMessageId(message.id);
+    const { error } = await supabase
+      .from("event_conversation_messages")
+      .delete()
+      .eq("id", message.id);
+
+    if (error) {
+      console.error("Deleting event conversation message failed", error);
+      setConversationMessageTone("error");
+      setConversationMessage("לא הצלחנו למחוק את ההודעה.");
+      setConversationBusyMessageId(null);
+      return false;
+    }
+
+    if (editingConversationMessageId === message.id) cancelEditingConversationMessage();
+    await loadEventConversations(selectedEventId, { showLoading: false, scrollToEnd: false });
+    setConversationBusyMessageId(null);
+    return true;
+  }
+
   const selectedEvent = communityEvents.find((event) => event.id === selectedEventId) ?? null;
   const selectedEventDisplayImageUrl =
     selectedEvent?.image_url ?? selectedCommunity?.logo_url ?? null;
+  const activeConversationTopic =
+    conversationTopics.find((topic) => topic.id === activeConversationTopicId) ?? null;
+  const activeConversationMessages = activeConversationTopic
+    ? conversationMessages.filter((message) => message.topic_id === activeConversationTopic.id)
+    : [];
+
   const cloneSourceEvent = cloneEventId
     ? communityEvents.find((event) => event.id === cloneEventId) ?? null
     : null;
@@ -4309,11 +4797,14 @@ export default function Home() {
     user.email,
   );
   const canRemoveCommunityMembers = canManageCommunityMembers;
+  const currentUserCommunityMembership = communityMembers.find(
+    (member) => member.user_id === user.id,
+  ) ?? null;
   const canLeaveSelectedCommunity = Boolean(
     selectedCommunity &&
-      selectedCommunity.is_member &&
-      selectedCommunity.role !== "owner" &&
-      selectedCommunity.created_by !== user.id,
+      (selectedCommunity.is_member || currentUserCommunityMembership) &&
+      (isSystemAdminEmail(user.email) ||
+        (selectedCommunity.role !== "owner" && selectedCommunity.created_by !== user.id)),
   );
   const canManageEvents = Boolean(
     selectedCommunity && canManageCommunity(selectedCommunity.role, user.email),
@@ -4458,6 +4949,13 @@ export default function Home() {
           message: pendingMemberAction.photo.media_type === "video"
             ? "למחוק את הסרטון מהגלריה?"
             : "למחוק את התמונה מהגלריה?",
+          confirmLabel: "כן, למחוק",
+          tone: "danger" as const,
+        };
+      case "delete_conversation_message":
+        return {
+          title: "מחיקת הודעה",
+          message: "למחוק את ההודעה מהשיחה?",
           confirmLabel: "כן, למחוק",
           tone: "danger" as const,
         };
@@ -4689,32 +5187,29 @@ export default function Home() {
                 מעבר למעגלים שלי
               </button>
               <div className="community-toolbar-actions">
-                <button
-                  type="button"
+                <a
                   className="secondary-button compact-button"
-                  onClick={() => openShareScreen(selectedCommunity)}
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    getCommunityShareText(
+                      selectedCommunity,
+                      getCommunityShareUrl(selectedCommunity.share_token),
+                    ),
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
                 >
                   שיתוף
-                </button>
-                {canLeaveSelectedCommunity && (
-                  <button
-                    type="button"
-                    className="leave-circle-button compact-button"
-                    onClick={() =>
-                      setPendingMemberAction({ type: "leave", community: selectedCommunity })
-                    }
-                  >
-                    עזיבת המעגל
-                  </button>
-                )}
+                </a>
                 {canManageCommunity(selectedCommunity.role, user.email) && (
-                  <button
-                    type="button"
-                    className="primary-button compact-button"
-                    onClick={() => openEditCommunity(selectedCommunity)}
-                  >
-                    עריכת המעגל
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="primary-button compact-button"
+                      onClick={() => openEditCommunity(selectedCommunity)}
+                    >
+                      עריכת המעגל
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -4888,7 +5383,7 @@ export default function Home() {
                               }
                               disabled={updatingRoleUserId === member.user_id}
                             >
-                              {member.role === "admin" ? "הפיכה לחבר/ה" : "הפיכה למנהל/ת"}
+                              {member.role === "admin" ? "הפיכה לחבר/ה רגיל/ה" : "הפיכה למנהל/ת"}
                             </button>
                             {canRemoveCommunityMembers && (
                               <button
@@ -4900,6 +5395,21 @@ export default function Home() {
                                 {removingUserId === member.user_id ? "מסירים..." : "הסרה"}
                               </button>
                             )}
+                          </div>
+                        )}
+                      {isSystemAdminEmail(user.email) &&
+                        (member.user_id === user.id || isSystemAdminEmail(member.email)) &&
+                        canLeaveSelectedCommunity && (
+                          <div className="member-management-actions">
+                            <button
+                              type="button"
+                              className="member-remove-button"
+                              onClick={() =>
+                                setPendingMemberAction({ type: "leave", community: selectedCommunity })
+                              }
+                            >
+                              הסרה
+                            </button>
                           </div>
                         )}
                     </article>
@@ -5006,6 +5516,18 @@ export default function Home() {
             )}
 
             {message && <p className={`message-box ${messageTone}`}>{message}</p>}
+
+            {canManageCommunity(selectedCommunity.role, user.email) && (
+              <div className="email-page-footer-actions" aria-label="שליחת הודעה לחברי המעגל">
+                <button
+                  type="button"
+                  className="secondary-button email-page-trigger whatsapp-page-trigger"
+                  onClick={openCommunityWhatsAppComposer}
+                >
+                  שליחת הודעת WhatsApp
+                </button>
+              </div>
+            )}
 
             {isSystemAdminEmail(user.email) && !selectedCommunity.is_member && (
               <div className="event-management-actions" aria-label="צירוף למעגל">
@@ -5247,37 +5769,12 @@ export default function Home() {
               <section className="personal-dashboard-section">
                 <div className="section-heading-compact">
                   <p className="section-kicker">הפעילות שלי</p>
-                  <h2>המעגלים והאירועים שלי</h2>
+                  <h2>האירועים וההתחייבויות שלי</h2>
                 </div>
                 {personalLoading ? (
                   <div className="inline-loading"><span className="spinner spinner-small" />טוענים...</div>
                 ) : (
                   <div className="personal-dashboard-grid">
-                    <div className="personal-dashboard-block">
-                      <h3>המעגלים שלי</h3>
-                      {communities.length === 0 ? (
-                        <p>עדיין אין מעגלים.</p>
-                      ) : (
-                        <div className="personal-list">
-                          {communities.map((community) => (
-                            <button
-                              type="button"
-                              className="personal-list-item"
-                              key={community.id}
-                              onClick={() => {
-                                setProfileScreenOpen(false);
-                                setSelectedCommunityId(community.id);
-                                setBrowserView({ circleToken: community.share_token });
-                              }}
-                            >
-                              <strong>{community.name}</strong>
-                              <span>{communityRoleLabel(community.role, user.email)}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
                     <div className="personal-dashboard-block">
                       <h3>האירועים שלי</h3>
                       {personalEvents.length === 0 ? (
@@ -5902,13 +6399,19 @@ export default function Home() {
                 מעבר למעגל
               </button>
               <div className="event-detail-actions">
-                <button
-                  type="button"
+                <a
                   className="secondary-button compact-button"
-                  onClick={() => openEventShareScreen(selectedEvent)}
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    getEventShareText(
+                      selectedEvent,
+                      getEventShareUrl(selectedEvent.share_token),
+                    ),
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
                 >
                   שיתוף
-                </button>
+                </a>
                 {canManageEvents && (
                   <>
                     <button
@@ -6048,7 +6551,6 @@ export default function Home() {
 
             <section className="my-attendance-section">
               <div className="section-heading-compact">
-                <p className="section-kicker">עדכון אישי</p>
                 <h2>ההשתתפות שלי</h2>
               </div>
 
@@ -6261,7 +6763,7 @@ export default function Home() {
                             value={bringItemName}
                             onChange={(event) => setBringItemName(event.target.value)}
                             maxLength={160}
-                            placeholder="לדוגמה: קינוח"
+                            placeholder="לדוגמה: 2 גלידות בן & ג'ריס"
                           />
                         </label>
                         <button
@@ -6280,6 +6782,173 @@ export default function Home() {
                 {bringMessage && <p className={`message-box ${bringMessageTone}`}>{bringMessage}</p>}
               </section>
             )}
+
+            <section className="event-conversations-section" aria-labelledby="event-conversations-title">
+              <div className="section-heading-compact">
+                <div>
+                  <h2 id="event-conversations-title">שיחות באירוע</h2>
+                </div>
+              </div>
+
+              {conversationLoading ? (
+                <div className="inline-loading">
+                  <span className="spinner spinner-small" />
+                  טוענים את השיחות...
+                </div>
+              ) : conversationTopics.length === 0 ? (
+                <p className="attendance-empty-state">השיחות עדיין אינן זמינות.</p>
+              ) : (
+                <>
+                  <div className="conversation-topic-tabs" role="tablist" aria-label="נושאי שיחה">
+                    {conversationTopics.map((topic) => {
+                      const messageCount = conversationMessages.filter(
+                        (message) => message.topic_id === topic.id,
+                      ).length;
+                      return (
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={topic.id === activeConversationTopicId}
+                          className={`conversation-topic-tab${
+                            topic.id === activeConversationTopicId ? " is-active" : ""
+                          }`}
+                          onClick={() => {
+                            conversationShouldScrollToEndRef.current = true;
+                            setActiveConversationTopicId(topic.id);
+                            setConversationMessage(null);
+                          }}
+                          key={topic.id}
+                        >
+                          <span>{topic.title}</span>
+                          <small>{messageCount}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="conversation-thread" role="tabpanel">
+                    {activeConversationMessages.length === 0 ? (
+                      <p className="conversation-empty-state">עדיין אין הודעות בנושא הזה.</p>
+                    ) : (
+                      <div
+                        ref={conversationMessageListRef}
+                        className="conversation-message-list"
+                      >
+                        {activeConversationMessages.map((conversationEntry) => {
+                          const isOwnMessage = conversationEntry.user_id === user.id;
+                          const canDeleteMessage =
+                            isOwnMessage || canManageCommunity(selectedCommunity.role, user.email);
+                          const isEditingMessage =
+                            editingConversationMessageId === conversationEntry.id;
+                          const messageBusy =
+                            conversationBusyMessageId === conversationEntry.id;
+
+                          return (
+                            <article
+                              className={`conversation-message-card${isOwnMessage ? " is-own" : ""}`}
+                              key={conversationEntry.id}
+                            >
+                              <ProfileAvatar
+                                imageUrl={
+                                  conversationEntry.avatar_url ?? conversationEntry.google_avatar_url
+                                }
+                                name={conversationEntry.full_name}
+                                size="small"
+                                onOpen={openImage}
+                              />
+                              <div className="conversation-message-content">
+                                <div className="conversation-message-meta">
+                                  <strong>{conversationEntry.full_name}</strong>
+                                  <time dateTime={conversationEntry.created_at}>
+                                    {formatShortDateTime(conversationEntry.created_at)}
+                                    {conversationEntry.updated_at !== conversationEntry.created_at
+                                      ? " · נערכה"
+                                      : ""}
+                                  </time>
+                                </div>
+
+                                {isEditingMessage ? (
+                                  <div className="conversation-message-editor">
+                                    <textarea
+                                      value={editingConversationBody}
+                                      onChange={(event) => setEditingConversationBody(event.target.value)}
+                                      maxLength={1200}
+                                      rows={3}
+                                      autoFocus
+                                    />
+                                    <div className="conversation-message-editor-actions">
+                                      <button
+                                        type="button"
+                                        className="secondary-button compact-button"
+                                        onClick={cancelEditingConversationMessage}
+                                        disabled={messageBusy}
+                                      >
+                                        ביטול
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="primary-button compact-button"
+                                        onClick={() => void saveConversationMessageEdit(conversationEntry)}
+                                        disabled={messageBusy || !editingConversationBody.trim()}
+                                      >
+                                        {messageBusy ? "שומרים..." : "שמירה"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p>{conversationEntry.body}</p>
+                                )}
+
+                                {!isEditingMessage && (isOwnMessage || canDeleteMessage) && (
+                                  <div className="conversation-message-actions">
+                                    {isOwnMessage && (
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditingConversationMessage(conversationEntry)}
+                                        disabled={Boolean(conversationBusyMessageId)}
+                                      >
+                                        עריכה
+                                      </button>
+                                    )}
+                                    {canDeleteMessage && (
+                                      <button
+                                        type="button"
+                                        className="is-danger"
+                                        onClick={() =>
+                                          setPendingMemberAction({
+                                            type: "delete_conversation_message",
+                                            message: conversationEntry,
+                                          })
+                                        }
+                                        disabled={Boolean(conversationBusyMessageId)}
+                                      >
+                                        מחיקה
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {activeConversationTopic && (
+                      <ConversationComposer
+                        topicId={activeConversationTopic.id}
+                        topicTitle={activeConversationTopic.title}
+                        onSend={sendConversationMessage}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
+
+              {conversationMessage && (
+                <p className={`message-box ${conversationMessageTone}`}>{conversationMessage}</p>
+              )}
+            </section>
 
             <section className="event-attendees-section">
               {attendanceLoading ? (
@@ -6338,7 +7007,6 @@ export default function Home() {
             <section className="event-gallery-section">
               <div className="section-heading-compact gallery-heading">
                 <div>
-                  <p className="section-kicker">זיכרונות מהאירוע</p>
                   <h2>גלריית האירוע</h2>
                   <small>{galleryImageCount}/{MAX_GALLERY_IMAGES} תמונות · {galleryVideoCount}/1 סרטון</small>
                 </div>
@@ -6349,10 +7017,11 @@ export default function Home() {
                       className="hidden-file-input"
                       type="file"
                       accept="image/*"
+                      multiple
                       onChange={(event) => {
-                        const file = event.target.files?.[0];
+                        const files = Array.from(event.target.files ?? []) as File[];
                         event.target.value = "";
-                        if (file) void uploadGalleryMedia(file, "image");
+                        if (files.length > 0) void uploadGalleryImages(files);
                       }}
                     />
                     <input
@@ -6372,7 +7041,7 @@ export default function Home() {
                       disabled={galleryBusy || galleryImageCount >= MAX_GALLERY_IMAGES}
                       onClick={() => galleryImageInputRef.current?.click()}
                     >
-                      הוספת תמונה
+                      הוספת תמונות
                     </button>
                     <button
                       type="button"
@@ -6432,6 +7101,18 @@ export default function Home() {
                 </div>
               )}
             </section>
+
+            {canManageEvents && (
+              <div className="email-page-footer-actions" aria-label="שליחת הודעה על האירוע">
+                <button
+                  type="button"
+                  className="secondary-button email-page-trigger whatsapp-page-trigger"
+                  onClick={openEventWhatsAppComposer}
+                >
+                  שליחת הודעת WhatsApp
+                </button>
+              </div>
+            )}
 
             {isSystemAdminEmail(user.email) && !selectedCommunity.is_member && (
               <div className="event-management-actions" aria-label="צירוף למעגל">
@@ -6758,6 +7439,86 @@ export default function Home() {
       )}
 
       </div>
+
+      {whatsAppComposer && (
+        <div className="modal-backdrop email-composer-backdrop" role="presentation" onMouseDown={() => closeWhatsAppComposer()}>
+          <section
+            className="email-composer-dialog whatsapp-composer-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="whatsapp-composer-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="email-composer-heading whatsapp-composer-heading">
+              <div>
+                <span className="email-composer-context whatsapp-composer-context">הודעת WhatsApp</span>
+                <h2 id="whatsapp-composer-title">{whatsAppComposer.title}</h2>
+                <p>
+                  כתבו הודעה חופשית. שם {whatsAppComposer.type === "event" ? "האירוע, התאריך והשעה" : "המעגל"} והקישור יצורפו להודעה.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="dialog-close-button email-dialog-close"
+                onClick={() => closeWhatsAppComposer()}
+                aria-label="סגירה"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="email-composer-form whatsapp-composer-form">
+              {whatsAppComposer.imageUrl && (
+                <img
+                  className="whatsapp-share-preview-image"
+                  src={whatsAppComposer.imageUrl}
+                  alt={`תמונת התצוגה של ${whatsAppComposer.title}`}
+                />
+              )}
+              <label className="email-field">
+                <span className="email-field-label">טקסט חופשי</span>
+                <textarea
+                  value={whatsAppMessage}
+                  onChange={(event) => setWhatsAppMessage(event.target.value)}
+                  rows={6}
+                  maxLength={1500}
+                  placeholder="לדוגמה: חברים, בבקשה למלא מה אתם מביאים"
+                  />
+                <small className="email-character-count">{whatsAppMessage.length} מתוך 1500</small>
+              </label>
+
+              <div className="email-composer-note whatsapp-composer-note">
+                <span aria-hidden="true">ⓘ</span>
+                <p>
+                  לאחר הלחיצה ייפתח WhatsApp לבחירת אדם או קבוצה. תישלח הודעה אחת בלבד. {whatsAppComposer.type === "event"
+                    ? "תמונת האירוע תוצג מתוך הקישור; אם לאירוע אין תמונה, תוצג תמונת המעגל."
+                    : "תמונת המעגל תוצג מתוך הקישור."}
+                </p>
+              </div>
+
+              <div className="whatsapp-share-link-preview" dir="ltr">{whatsAppComposer.shareUrl}</div>
+            </div>
+
+            <div className="email-composer-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => closeWhatsAppComposer()}
+              >
+                סגירה ללא שליחה
+              </button>
+              <a
+                className="primary-button whatsapp-send-button"
+                href={getWhatsAppComposerUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                שיתוף
+              </a>
+            </div>
+          </section>
+        </div>
+      )}
 
       {selectedActiveUser && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSelectedActiveUser(null)}>
