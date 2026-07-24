@@ -29,7 +29,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.3.0";
+const APP_VERSION = "v1.1.3.5";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -333,6 +333,16 @@ type PersonalEventRow = {
   attendance: EventAttendance | null;
 };
 
+type SystemUsageLogRow = {
+  session_id: string;
+  user_id: string;
+  full_name: string;
+  community_names: string[];
+  duration_seconds: number;
+  started_at: string;
+  last_heartbeat_at: string;
+};
+
 type PendingMemberAction =
   | { type: "remove"; member: CommunityMember }
   | { type: "role"; member: CommunityMember; nextRole: "admin" | "member" }
@@ -600,6 +610,8 @@ function LegalScreen({
   onCheckedChange,
   onAccept,
   onBack,
+  onSignOut,
+  signingOut,
   saving,
   acceptanceRequired,
   acceptButtonLabel,
@@ -624,6 +636,8 @@ function LegalScreen({
   onCheckedChange: (checked: boolean) => void;
   onAccept: () => void;
   onBack?: () => void;
+  onSignOut?: () => void;
+  signingOut: boolean;
   saving: boolean;
   acceptanceRequired: boolean;
   acceptButtonLabel: string;
@@ -650,13 +664,23 @@ function LegalScreen({
     <main className="legal-page">
       <section className="legal-card" aria-live="polite">
         <div className="legal-toolbar">
-          {onBack ? (
-            <button type="button" className="back-button" onClick={onBack}>
-              חזרה
-            </button>
-          ) : (
-            <span />
-          )}
+          <div className="legal-toolbar-actions">
+            {onBack && (
+              <button type="button" className="back-button" onClick={onBack}>
+                חזרה
+              </button>
+            )}
+            {onSignOut && (
+              <button
+                type="button"
+                className="secondary-button compact-button legal-signout-button"
+                onClick={onSignOut}
+                disabled={signingOut}
+              >
+                {signingOut ? "מתנתקים..." : "התנתקות"}
+              </button>
+            )}
+          </div>
           <span className="legal-version">גרסת מסמך {LEGAL_VERSION}</span>
         </div>
 
@@ -1231,6 +1255,23 @@ function formatJoinDateTime(value: string) {
   return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} ${timePart}`;
 }
 
+function formatUsageDuration(value: number) {
+  const totalSeconds = Math.max(0, Math.floor(Number(value) || 0));
+  if (totalSeconds < 60) return totalSeconds === 0 ? "טרם נצבר זמן" : `${totalSeconds} שניות`;
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+
+  if (days > 0) parts.push(`${days} ${days === 1 ? "יום" : "ימים"}`);
+  if (hours > 0) parts.push(`${hours} ${hours === 1 ? "שעה" : "שעות"}`);
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes} דקות`);
+
+  return parts.join(" ו־");
+}
+
 function formatEventDate(startsAt: string, endsAt?: string | null) {
   const start = new Date(startsAt);
   if (Number.isNaN(start.getTime())) return "";
@@ -1315,6 +1356,7 @@ export default function Home() {
   const [birthMonth, setBirthMonth] = useState("");
   const [birthYear, setBirthYear] = useState("");
   const [profileScreenOpen, setProfileScreenOpen] = useState(false);
+  const [systemUsageScreenOpen, setSystemUsageScreenOpen] = useState(false);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
   const [communityFormOpen, setCommunityFormOpen] = useState(false);
@@ -1416,6 +1458,9 @@ export default function Home() {
   const [personalEvents, setPersonalEvents] = useState<PersonalEventRow[]>([]);
   const [personalCommitments, setPersonalCommitments] = useState<Array<EventBringContribution & { event_title: string; starts_at: string; community_id: string; community_name: string; share_token: string }>>([]);
   const [personalLoading, setPersonalLoading] = useState(false);
+  const [systemUsageLog, setSystemUsageLog] = useState<SystemUsageLogRow[]>([]);
+  const [systemUsageLoading, setSystemUsageLoading] = useState(false);
+  const [systemUsageError, setSystemUsageError] = useState<string | null>(null);
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(null);
   const [pendingEventShareToken, setPendingEventShareToken] = useState<string | null>(null);
   const [pendingEventOpenId, setPendingEventOpenId] = useState<string | null>(null);
@@ -1682,6 +1727,51 @@ export default function Home() {
     },
     [supabase, user?.email],
   );
+
+  const loadSystemUsageLog = useCallback(async () => {
+    if (!user || !isSystemAdminEmail(user.email)) {
+      setSystemUsageLog([]);
+      setSystemUsageError(null);
+      return;
+    }
+
+    setSystemUsageLoading(true);
+    setSystemUsageError(null);
+
+    const { data, error } = await supabase.rpc("get_system_admin_usage_log");
+    if (error) {
+      console.error("Loading system usage log failed", error);
+      setSystemUsageLog([]);
+      setSystemUsageError(
+        error.code === "42883" || error.code === "42P01" || error.code === "PGRST202"
+          ? "יש להריץ את קובץ ה־SQL של circles134 ב־Supabase."
+          : "לא הצלחנו לטעון את לוג השימוש במערכת.",
+      );
+      setSystemUsageLoading(false);
+      return;
+    }
+
+    setSystemUsageLog(
+      (data ?? []).map((row: {
+        session_id: string;
+        user_id: string;
+        full_name: string | null;
+        community_names: string[] | null;
+        duration_seconds: number | string | null;
+        started_at: string;
+        last_heartbeat_at: string;
+      }) => ({
+        session_id: row.session_id,
+        user_id: row.user_id,
+        full_name: row.full_name || "משתמש",
+        community_names: Array.isArray(row.community_names) ? row.community_names : [],
+        duration_seconds: Number(row.duration_seconds ?? 0),
+        started_at: row.started_at,
+        last_heartbeat_at: row.last_heartbeat_at,
+      })),
+    );
+    setSystemUsageLoading(false);
+  }, [supabase, user]);
 
   const loadMediaDefaults = useCallback(async () => {
     const { data, error } = await supabase
@@ -2199,13 +2289,14 @@ export default function Home() {
   );
 
   function setBrowserView(
-    view: { circleToken?: string; eventToken?: string; profile?: boolean },
+    view: { circleToken?: string; eventToken?: string; profile?: boolean; usageLog?: boolean },
     mode: "push" | "replace" = "push",
   ) {
     const params = new URLSearchParams();
     if (view.eventToken) params.set("event", view.eventToken);
     else if (view.circleToken) params.set("circle", view.circleToken);
     else if (view.profile) params.set("view", "profile");
+    else if (view.usageLog) params.set("view", "usage-log");
 
     const nextUrl = params.size ? `/?${params.toString()}` : "/";
     const viewName = view.eventToken
@@ -2214,7 +2305,9 @@ export default function Home() {
         ? "circle"
         : view.profile
           ? "profile"
-          : "home";
+          : view.usageLog
+            ? "usage-log"
+            : "home";
     const state = { circlesApp: true, view: viewName };
     if (mode === "replace") window.history.replaceState(state, "", nextUrl);
     else window.history.pushState(state, "", nextUrl);
@@ -2366,9 +2459,13 @@ export default function Home() {
             ? { profile: true }
             : null;
 
-      if (requestedView === "profile") {
+      if (requestedView === "profile" || requestedView === "usage-log") {
         window.history.replaceState({ circlesApp: true, view: "home" }, "", "/");
-        window.history.pushState({ circlesApp: true, view: "profile" }, "", "/?view=profile");
+        window.history.pushState(
+          { circlesApp: true, view: requestedView },
+          "",
+          `/?view=${requestedView}`,
+        );
         directNavigationPreparedRef.current = true;
       } else if (!eventToken && !joinToken && !circleToken) {
         window.history.replaceState({ circlesApp: true, view: "home" }, "", "/");
@@ -2383,6 +2480,7 @@ export default function Home() {
     }
 
     if (requestedView === "profile") setProfileScreenOpen(true);
+    if (requestedView === "usage-log") setSystemUsageScreenOpen(true);
 
     if (eventToken) {
       setPendingEventShareToken(eventToken);
@@ -2463,11 +2561,13 @@ export default function Home() {
           ? `community-editor:${editingCommunityId ?? "new"}`
           : shareEvent
             ? `event-share:${shareEvent.id}`
-            : profileScreenOpen
-              ? "profile"
-              : selectedEventId
-                ? `event:${selectedEventId}`
-                : selectedCommunityId
+            : systemUsageScreenOpen
+              ? "usage-log"
+              : profileScreenOpen
+                ? "profile"
+                : selectedEventId
+                  ? `event:${selectedEventId}`
+                  : selectedCommunityId
                   ? `community:${selectedCommunityId}`
                   : "home";
 
@@ -2525,6 +2625,24 @@ export default function Home() {
   }, [loadPersonalDashboard, profileScreenOpen]);
 
   useEffect(() => {
+    if (!systemUsageScreenOpen || !user || !isSystemAdminEmail(user.email)) {
+      setSystemUsageLog([]);
+      setSystemUsageError(null);
+      return;
+    }
+
+    void loadSystemUsageLog();
+    const timer = window.setInterval(() => void loadSystemUsageLog(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadSystemUsageLog, systemUsageScreenOpen, user]);
+
+  useEffect(() => {
+    if (!systemUsageScreenOpen || !user || isSystemAdminEmail(user.email)) return;
+    setSystemUsageScreenOpen(false);
+    window.history.replaceState({ circlesApp: true, view: "home" }, "", "/");
+  }, [systemUsageScreenOpen, user]);
+
+  useEffect(() => {
     if (user) void loadMediaDefaults();
   }, [loadMediaDefaults, user]);
 
@@ -2573,8 +2691,9 @@ export default function Home() {
       setCommunityFormOpen(false);
       setEventFormOpen(false);
       setProfileScreenOpen(requestedView === "profile");
+      setSystemUsageScreenOpen(requestedView === "usage-log");
 
-      if (requestedView === "profile") {
+      if (requestedView === "profile" || requestedView === "usage-log") {
         setSelectedEventId(null);
         setSelectedCommunityId(null);
         return;
@@ -2922,7 +3041,7 @@ export default function Home() {
 
     const params = new URLSearchParams(window.location.search);
     const currentEventToken = params.get("event");
-    const currentCircleToken = params.get("circle");
+    const currentCircleToken = params.get("circle") ?? params.get("join");
     if (currentEventToken) {
       setPendingEventShareToken(currentEventToken);
       setPendingShareToken(null);
@@ -5262,6 +5381,8 @@ export default function Home() {
         onCheckedChange={updateLegalConsentChecked}
         onAccept={acceptLegalConsent}
         onBack={canCloseLegalScreen ? () => setLegalScreenOpen(false) : undefined}
+        onSignOut={user ? () => void signOut() : undefined}
+        signingOut={authBusy}
         saving={legalConsentSaving}
         acceptanceRequired={acceptanceRequired}
         acceptButtonLabel={user ? "אישור והמשך" : "אישור וחזרה לכניסה"}
@@ -5768,6 +5889,7 @@ export default function Home() {
               className="brand-button"
               onClick={() => {
                 setProfileScreenOpen(false);
+                setSystemUsageScreenOpen(false);
                 setCommunityFormOpen(false);
                 setEventFormOpen(false);
                 setSelectedEventId(null);
@@ -5893,6 +6015,7 @@ export default function Home() {
                 setEventFormOpen(false);
                 setSelectedEventId(null);
                 setSelectedCommunityId(null);
+                setSystemUsageScreenOpen(false);
                 setProfileScreenOpen(true);
                 setMessage(null);
                 setBrowserView({ profile: true });
@@ -5948,7 +6071,7 @@ export default function Home() {
           )}
         </header>
 
-        {profileScreenOpen || communityFormOpen || eventFormOpen || selectedEvent || shareEvent ? null : selectedCommunity ? (
+        {profileScreenOpen || systemUsageScreenOpen || communityFormOpen || eventFormOpen || selectedEvent || shareEvent ? null : selectedCommunity ? (
           <section className="community-detail-card">
             <div className="community-detail-toolbar">
               <button
@@ -6633,6 +6756,23 @@ export default function Home() {
                 </section>
               )}
 
+              {isSystemAdminEmail(user.email) && (
+                <div className="profile-system-log-button-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => {
+                      setProfileScreenOpen(false);
+                      setSystemUsageScreenOpen(true);
+                      setSystemUsageError(null);
+                      setBrowserView({ usageLog: true });
+                    }}
+                  >
+                    לוג שימוש במערכת
+                  </button>
+                </div>
+              )}
+
               <section className="personal-dashboard-section">
                 <div className="section-heading-compact">
                   <p className="section-kicker">הפעילות שלי</p>
@@ -6697,6 +6837,74 @@ export default function Home() {
                 )}
               </section>
             </section>
+        </div>
+      )}
+
+      {systemUsageScreenOpen && isSystemAdminEmail(user.email) && (
+        <div className="edit-screen-shell">
+          <section className="profile-card profile-screen-card system-usage-screen-card">
+            <div className="editor-screen-toolbar">
+              <button
+                type="button"
+                className="back-button"
+                onClick={() => {
+                  setSystemUsageScreenOpen(false);
+                  setProfileScreenOpen(true);
+                  setBrowserView({ profile: true }, "replace");
+                }}
+              >
+                חזרה לאזור האישי
+              </button>
+              <button
+                type="button"
+                className="secondary-button compact-button"
+                onClick={() => void loadSystemUsageLog()}
+                disabled={systemUsageLoading}
+              >
+                {systemUsageLoading ? "מרעננים..." : "רענון"}
+              </button>
+            </div>
+
+            <div className="section-heading-compact system-usage-screen-heading">
+              <p className="section-kicker">ניהול מערכת</p>
+              <h2>לוג שימוש במערכת</h2>
+              <small>כל שורה מייצגת רצף שימוש נפרד במערכת.</small>
+            </div>
+
+            {systemUsageError ? (
+              <p className="message-box error">{systemUsageError}</p>
+            ) : systemUsageLoading && systemUsageLog.length === 0 ? (
+              <div className="inline-loading"><span className="spinner spinner-small" />טוענים את לוג השימוש...</div>
+            ) : systemUsageLog.length === 0 ? (
+              <p className="system-usage-empty">עדיין לא נאספו מקטעי שימוש.</p>
+            ) : (
+              <div className="system-usage-table-wrap">
+                <table className="system-usage-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">משתמש</th>
+                      <th scope="col">משך</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {systemUsageLog.map((row) => (
+                      <tr key={row.session_id}>
+                        <td>
+                          <strong>{row.full_name}</strong>
+                          <small>
+                            {row.community_names.length > 0
+                              ? `מעגלים: ${row.community_names.join(", ")}`
+                              : "ללא מעגלים"}
+                          </small>
+                        </td>
+                        <td className="system-usage-duration">{formatUsageDuration(row.duration_seconds)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </div>
       )}
 
@@ -7260,7 +7468,7 @@ export default function Home() {
         </div>
       )}
 
-      {!profileScreenOpen && !communityFormOpen && !eventFormOpen && !shareEvent && selectedEvent && selectedCommunity && (
+      {!profileScreenOpen && !systemUsageScreenOpen && !communityFormOpen && !eventFormOpen && !shareEvent && selectedEvent && selectedCommunity && (
         <div className="event-screen-backdrop">
           <section className={`event-detail-panel${selectedEventIsCancelled ? " event-is-cancelled" : ""}`} aria-labelledby="event-detail-title">
             <div className="event-detail-toolbar">
