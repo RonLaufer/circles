@@ -30,7 +30,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.4.1";
+const APP_VERSION = "v1.1.4.3";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -282,6 +282,31 @@ type EventBringContribution = {
   google_avatar_url: string | null;
 };
 
+type EventRideRequest = {
+  id: string;
+  event_id: string;
+  user_id: string;
+  origin: string;
+  created_at: string;
+  updated_at: string;
+  full_name: string;
+  phone: string;
+  avatar_url: string | null;
+  google_avatar_url: string | null;
+};
+
+type EventRideOffer = {
+  id: string;
+  request_id: string;
+  event_id: string;
+  user_id: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  full_name: string;
+  phone: string;
+};
+
 type BringDisplayRow =
   | { kind: "need"; sortName: string; need: EventBringNeed }
   | { kind: "free"; sortName: string; contribution: EventBringContribution };
@@ -362,9 +387,7 @@ type PendingMemberAction =
   | { type: "cancel_event"; event: CommunityEvent; cancel: boolean }
   | { type: "delete_circle"; community: Community }
   | { type: "delete_gallery"; photo: EventGalleryPhoto }
-  | { type: "delete_conversation_message"; message: EventConversationMessage }
-  | { type: "delete_notification"; notification: AppNotification }
-  | { type: "delete_all_notifications" };
+  | { type: "delete_conversation_message"; message: EventConversationMessage };
 
 function GoogleIcon() {
   return (
@@ -436,11 +459,9 @@ function LogoutIcon() {
 
 function ConversationComposer({
   topicId,
-  topicTitle,
   onSend,
 }: {
   topicId: string;
-  topicTitle: string;
   onSend: (body: string) => Promise<boolean>;
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -495,7 +516,7 @@ function ConversationComposer({
         onChange={(event) => setDraft(event.target.value)}
         maxLength={1200}
         rows={3}
-        placeholder={`כתיבת הודעה בנושא ${topicTitle}`}
+        placeholder="כתיבת הודעה בשיחה"
       />
       <div className="conversation-composer-actions">
         <span>{draft.length}/1200</span>
@@ -965,6 +986,86 @@ function PhoneLink({ phone }: { phone: string }) {
     >
       {phone}
     </a>
+  );
+}
+
+function WhatsAppIconLink({ phone, label }: { phone: string; label: string }) {
+  const whatsappUrl = getWhatsAppUrl(phone);
+  if (!whatsappUrl) return null;
+
+  return (
+    <a
+      className="ride-whatsapp-link"
+      href={whatsappUrl}
+      target="_blank"
+      rel="noreferrer"
+      title={`שליחת WhatsApp אל ${label}`}
+      aria-label={`שליחת WhatsApp אל ${label}`}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M12.04 2a9.84 9.84 0 0 0-8.47 14.82L2 22l5.33-1.5A9.98 9.98 0 1 0 12.04 2Zm0 17.94a8.03 8.03 0 0 1-4.08-1.12l-.3-.18-3.16.89.86-3.08-.2-.32a7.92 7.92 0 1 1 6.88 3.81Zm4.4-5.94c-.24-.12-1.43-.7-1.65-.78-.22-.08-.38-.12-.54.12-.16.24-.62.78-.76.94-.14.16-.28.18-.52.06-.24-.12-1.01-.37-1.92-1.19a7.2 7.2 0 0 1-1.33-1.65c-.14-.24-.02-.37.1-.49.11-.11.24-.28.36-.42.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.54-1.3-.74-1.78-.19-.47-.39-.41-.54-.42h-.46c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 2s.86 2.32.98 2.48c.12.16 1.69 2.58 4.1 3.62.57.25 1.02.4 1.37.51.58.18 1.1.16 1.51.1.46-.07 1.43-.58 1.63-1.15.2-.56.2-1.04.14-1.14-.06-.1-.22-.16-.46-.28Z"
+        />
+      </svg>
+    </a>
+  );
+}
+
+type RideOfferControlsProps = {
+  enabled: boolean;
+  initialNote: string;
+  busy: boolean;
+  onToggle: (checked: boolean) => void;
+  onSave: (note: string) => void;
+};
+
+function RideOfferControls({
+  enabled,
+  initialNote,
+  busy,
+  onToggle,
+  onSave,
+}: RideOfferControlsProps) {
+  const [note, setNote] = useState(initialNote);
+
+  useEffect(() => {
+    setNote(initialNote);
+  }, [initialNote]);
+
+  return (
+    <div className="ride-offer-editor">
+      <label className="ride-offer-checkbox">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => onToggle(event.target.checked)}
+          disabled={busy}
+        />
+        <span>אני יכול/ה להציע טרמפ</span>
+      </label>
+      {enabled && (
+        <div className="ride-offer-input-row">
+          <input
+            type="text"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            maxLength={240}
+            placeholder="הערה"
+            disabled={busy}
+            autoComplete="off"
+          />
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            onClick={() => onSave(note)}
+            disabled={busy}
+          >
+            {busy ? "שומרים..." : "שמירת ההערה"}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1666,12 +1767,12 @@ function getEventBrowserTitle(event: Pick<CommunityEvent, "title" | "starts_at">
 
 function getEventShareUrl(shareToken: string) {
   if (typeof window === "undefined") {
-    return `${PRODUCTION_ORIGIN}/event/${shareToken}?open=1`;
+    return `${PRODUCTION_ORIGIN}/event/${shareToken}?v=1`;
   }
 
   const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const origin = isLocalhost ? PRODUCTION_ORIGIN : window.location.origin;
-  return `${origin}/event/${shareToken}?open=1`;
+  return `${origin}/event/${shareToken}?v=1`;
 }
 
 function getEventShareText(event: SharedEvent | CommunityEvent, url: string) {
@@ -1755,6 +1856,15 @@ export default function Home() {
   const [bringBusyKey, setBringBusyKey] = useState<string | null>(null);
   const [bringMessage, setBringMessage] = useState<string | null>(null);
   const [bringMessageTone, setBringMessageTone] = useState<"error" | "success">("error");
+  const [eventRideRequests, setEventRideRequests] = useState<EventRideRequest[]>([]);
+  const [eventRideOffers, setEventRideOffers] = useState<EventRideOffer[]>([]);
+  const [rideLoading, setRideLoading] = useState(false);
+  const [rideOrigin, setRideOrigin] = useState("");
+  const [rideOfferDrafts, setRideOfferDrafts] = useState<Record<string, string>>({});
+  const [rideOfferEnabled, setRideOfferEnabled] = useState<Record<string, boolean>>({});
+  const [rideBusyKey, setRideBusyKey] = useState<string | null>(null);
+  const [rideMessage, setRideMessage] = useState<string | null>(null);
+  const [rideMessageTone, setRideMessageTone] = useState<"error" | "success">("error");
   const [eventFormOpen, setEventFormOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [eventTitle, setEventTitle] = useState("");
@@ -1817,6 +1927,7 @@ export default function Home() {
   const [systemUsageError, setSystemUsageError] = useState<string | null>(null);
   const [editingMemberImage, setEditingMemberImage] = useState<CommunityMember | null>(null);
   const [adminMemberImage, setAdminMemberImage] = useState<SelectedImage | null>(null);
+  const [adminMemberName, setAdminMemberName] = useState("");
   const [savingMemberImage, setSavingMemberImage] = useState(false);
   const [memberImageMessage, setMemberImageMessage] = useState<string | null>(null);
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(null);
@@ -2370,6 +2481,110 @@ export default function Home() {
     [supabase, user],
   );
 
+  const loadEventRides = useCallback(
+    async (eventId: string) => {
+      setRideLoading(true);
+      setRideMessage(null);
+
+      const { data: requestRows, error: requestsError } = await supabase
+        .from("event_ride_requests")
+        .select("id,event_id,user_id,origin,created_at,updated_at")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: true });
+
+      if (requestsError) {
+        console.error("Loading event ride requests failed", requestsError);
+        setEventRideRequests([]);
+        setEventRideOffers([]);
+        setRideMessageTone("error");
+        setRideMessage(
+          requestsError.code === "42P01"
+            ? "יש להריץ את קובץ ה־SQL של circles142 ב־Supabase."
+            : "לא הצלחנו לטעון את טבלת הטרמפים.",
+        );
+        setRideLoading(false);
+        return;
+      }
+
+      const requestIds = (requestRows ?? []).map((request) => request.id);
+      const { data: offerRows, error: offersError } = requestIds.length
+        ? await supabase
+            .from("event_ride_offers")
+            .select("id,request_id,event_id,user_id,note,created_at,updated_at")
+            .in("request_id", requestIds)
+            .order("created_at", { ascending: true })
+        : { data: [], error: null };
+
+      if (offersError) {
+        console.error("Loading event ride offers failed", offersError);
+        setEventRideRequests([]);
+        setEventRideOffers([]);
+        setRideMessageTone("error");
+        setRideMessage("לא הצלחנו לטעון את הצעות הטרמפ.");
+        setRideLoading(false);
+        return;
+      }
+
+      const profileIds = Array.from(
+        new Set([
+          ...(requestRows ?? []).map((request) => request.user_id),
+          ...(offerRows ?? []).map((offer) => offer.user_id),
+        ]),
+      );
+      const { data: profileRows, error: profilesError } = profileIds.length
+        ? await supabase
+            .from("profiles")
+            .select("id,full_name,phone,avatar_url,google_avatar_url")
+            .in("id", profileIds)
+        : { data: [], error: null };
+
+      if (profilesError) {
+        console.error("Loading ride profiles failed", profilesError);
+      }
+
+      const profilesById = new Map((profileRows ?? []).map((row) => [row.id, row]));
+      const mappedRequests = (requestRows ?? []).map((request) => {
+        const requestProfile = profilesById.get(request.user_id);
+        return {
+          ...request,
+          full_name: requestProfile?.full_name || "משתמש",
+          phone: requestProfile?.phone ?? "",
+          avatar_url: requestProfile?.avatar_url ?? null,
+          google_avatar_url: requestProfile?.google_avatar_url ?? null,
+        };
+      }) as EventRideRequest[];
+      const mappedOffers = (offerRows ?? []).map((offer) => {
+        const offerProfile = profilesById.get(offer.user_id);
+        return {
+          ...offer,
+          full_name: offerProfile?.full_name || "משתמש",
+          phone: offerProfile?.phone ?? "",
+        };
+      }) as EventRideOffer[];
+
+      setEventRideRequests(mappedRequests);
+      setEventRideOffers(mappedOffers);
+      setRideOrigin(mappedRequests.find((request) => request.user_id === user?.id)?.origin ?? "");
+      setRideOfferDrafts(
+        Object.fromEntries(
+          mappedOffers
+            .filter((offer) => offer.user_id === user?.id)
+            .map((offer) => [offer.request_id, offer.note]),
+        ),
+      );
+      setRideOfferEnabled(
+        Object.fromEntries(
+          mappedRequests.map((request) => [
+            request.id,
+            mappedOffers.some((offer) => offer.request_id === request.id && offer.user_id === user?.id),
+          ]),
+        ),
+      );
+      setRideLoading(false);
+    },
+    [supabase, user],
+  );
+
   const loadNotifications = useCallback(async () => {
     if (!user) return;
     setNotificationsLoading(true);
@@ -2439,6 +2654,7 @@ export default function Home() {
       .from("event_conversation_topics")
       .select("id,event_id,slug,title,sort_order,created_at")
       .eq("event_id", eventId)
+      .eq("slug", "general")
       .order("sort_order", { ascending: true });
 
     if (topicsError) {
@@ -3187,7 +3403,13 @@ export default function Home() {
       setEventBringContributions([]);
       setBringNoteByContribution({});
       setBringItemName("");
-        setBringMessage(null);
+      setBringMessage(null);
+      setEventRideRequests([]);
+      setEventRideOffers([]);
+      setRideOrigin("");
+      setRideOfferDrafts({});
+      setRideOfferEnabled({});
+      setRideMessage(null);
       setGalleryPhotos([]);
       setConversationTopics([]);
       setConversationMessages([]);
@@ -3204,11 +3426,12 @@ export default function Home() {
       void Promise.all([
         loadEventAttendance(selectedEventId),
         loadEventBringData(selectedEventId),
+        loadEventRides(selectedEventId),
         loadEventGallery(selectedEventId),
         loadEventConversations(selectedEventId),
       ]);
     }
-  }, [communityEvents, loadEventAttendance, loadEventBringData, loadEventConversations, loadEventGallery, selectedEventId]);
+  }, [communityEvents, loadEventAttendance, loadEventBringData, loadEventConversations, loadEventGallery, loadEventRides, selectedEventId]);
 
   useEffect(() => {
     if (!selectedEventId) return;
@@ -3233,6 +3456,42 @@ export default function Home() {
       void supabase.removeChannel(channel);
     };
   }, [loadEventConversations, selectedEventId, supabase]);
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+
+    const channel = supabase
+      .channel(`event-rides-${selectedEventId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "event_ride_requests",
+          filter: `event_id=eq.${selectedEventId}`,
+        },
+        () => {
+          void loadEventRides(selectedEventId);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "event_ride_offers",
+          filter: `event_id=eq.${selectedEventId}`,
+        },
+        () => {
+          void loadEventRides(selectedEventId);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [loadEventRides, selectedEventId, supabase]);
 
   useLayoutEffect(() => {
     if (!conversationShouldScrollToEndRef.current) return;
@@ -3810,10 +4069,6 @@ export default function Home() {
       succeeded = await deleteGalleryPhoto(pendingMemberAction.photo);
     } else if (pendingMemberAction.type === "delete_conversation_message") {
       succeeded = await deleteConversationMessage(pendingMemberAction.message);
-    } else if (pendingMemberAction.type === "delete_notification") {
-      succeeded = await deleteNotification(pendingMemberAction.notification);
-    } else if (pendingMemberAction.type === "delete_all_notifications") {
-      succeeded = await deleteAllNotifications();
     } else {
       succeeded = await leaveCommunity(pendingMemberAction.community);
     }
@@ -3933,7 +4188,7 @@ export default function Home() {
         originalBytes: file.size,
         personName:
           target === "admin"
-            ? editingMemberImage?.full_name ?? "המשתמש"
+            ? adminMemberName.trim() || editingMemberImage?.full_name || "המשתמש"
             : profile?.full_name ?? (fullName.trim() || "המשתמש"),
       });
     } catch (error) {
@@ -4092,6 +4347,7 @@ export default function Home() {
       clearSelectedImage(current);
       return null;
     });
+    setAdminMemberName(member.full_name);
     setMemberImageMessage(null);
     setEditingMemberImage(member);
   }
@@ -4102,6 +4358,7 @@ export default function Home() {
       clearSelectedImage(current);
       return null;
     });
+    setAdminMemberName("");
     setMemberImageMessage(null);
     setEditingMemberImage(null);
   }
@@ -4111,20 +4368,30 @@ export default function Home() {
   }
 
   async function saveAdminMemberImage() {
-    if (!user || !isSystemAdminEmail(user.email) || !editingMemberImage || !adminMemberImage) return;
+    if (!user || !isSystemAdminEmail(user.email) || !editingMemberImage) return;
+
+    const cleanName = adminMemberName.trim();
+    if (!cleanName) {
+      setMemberImageMessage("יש למלא שם.");
+      return;
+    }
 
     setSavingMemberImage(true);
     setMemberImageMessage(null);
 
     try {
-      const avatarUrl = await uploadPublicImage(
-        "profile-images",
-        `${editingMemberImage.user_id}/avatar.jpg`,
-        adminMemberImage.blob,
-      );
+      let avatarUrl: string | null = null;
+      if (adminMemberImage) {
+        avatarUrl = await uploadPublicImage(
+          "profile-images",
+          `${editingMemberImage.user_id}/avatar.jpg`,
+          adminMemberImage.blob,
+        );
+      }
 
-      const { error } = await supabase.rpc("set_system_admin_profile_avatar", {
+      const { error } = await supabase.rpc("set_system_admin_profile_details", {
         target_user_id: editingMemberImage.user_id,
+        new_full_name: cleanName,
         new_avatar_url: avatarUrl,
       });
       if (error) throw error;
@@ -4132,7 +4399,11 @@ export default function Home() {
       setCommunityMembers((current) =>
         current.map((member) =>
           member.user_id === editingMemberImage.user_id
-            ? { ...member, avatar_url: avatarUrl }
+            ? {
+                ...member,
+                full_name: cleanName,
+                avatar_url: avatarUrl ?? member.avatar_url,
+              }
             : member,
         ),
       );
@@ -4140,16 +4411,17 @@ export default function Home() {
         clearSelectedImage(current);
         return null;
       });
+      setAdminMemberName("");
       setEditingMemberImage(null);
       setMessageTone("success");
-      setMessage(`תמונת הפרופיל של ${editingMemberImage.full_name} עודכנה.`);
+      setMessage(`הפרופיל של ${cleanName} עודכן.`);
     } catch (error) {
-      console.error("Updating member profile image failed", error);
+      console.error("Updating member profile failed", error);
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
       setMemberImageMessage(
         code === "42883" || code === "42501" || code === "PGRST202"
-          ? "יש להריץ את קובץ ה־SQL של circles136 ב־Supabase."
-          : "העלאת תמונת הפרופיל לא הצליחה. נסו שוב.",
+          ? "יש להריץ את קובץ ה־SQL של circles143 ב־Supabase."
+          : "עדכון פרטי המשתמש לא הצליח. נסו שוב.",
       );
     } finally {
       setSavingMemberImage(false);
@@ -6056,6 +6328,179 @@ export default function Home() {
   const communityFormImageUrl = communityImage?.previewUrl ?? editingCommunity?.logo_url ?? null;
   const communityFormVideoUrl = communityVideo?.previewUrl ?? editingCommunity?.video_url ?? null;
   const editingEvent = communityEvents.find((event) => event.id === editingEventId) ?? null;
+  async function saveRideRequest() {
+    if (!user || !selectedEventId || rideBusyKey) return;
+    const origin = rideOrigin.trim();
+    if (origin.length < 2) {
+      setRideMessageTone("error");
+      setRideMessage("יש לכתוב מאיפה נדרש הטרמפ.");
+      return;
+    }
+
+    setRideBusyKey("request");
+    setRideMessage(null);
+    const { error } = await supabase
+      .from("event_ride_requests")
+      .upsert(
+        { event_id: selectedEventId, user_id: user.id, origin },
+        { onConflict: "event_id,user_id" },
+      );
+
+    if (error) {
+      console.error("Saving ride request failed", error);
+      setRideMessageTone("error");
+      setRideMessage(
+        error.code === "42P01"
+          ? "יש להריץ את קובץ ה־SQL של circles142 ב־Supabase."
+          : "לא הצלחנו לשמור את בקשת הטרמפ.",
+      );
+      setRideBusyKey(null);
+      return;
+    }
+
+    await loadEventRides(selectedEventId);
+    setRideMessageTone("success");
+    setRideMessage("בקשת הטרמפ נשמרה.");
+    setRideBusyKey(null);
+  }
+
+  async function deleteOwnRideRequest(request: EventRideRequest) {
+    if (!user || request.user_id !== user.id || rideBusyKey) return;
+
+    setRideBusyKey(`request-delete-${request.id}`);
+    setRideMessage(null);
+    const { error } = await supabase
+      .from("event_ride_requests")
+      .delete()
+      .eq("id", request.id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Deleting ride request failed", error);
+      setRideMessageTone("error");
+      setRideMessage("לא הצלחנו למחוק את בקשת הטרמפ.");
+      setRideBusyKey(null);
+      return;
+    }
+
+    setRideOrigin("");
+    if (selectedEventId) await loadEventRides(selectedEventId);
+    setRideMessageTone("success");
+    setRideMessage("בקשת הטרמפ נמחקה.");
+    setRideBusyKey(null);
+  }
+
+  async function setRideOfferChecked(request: EventRideRequest, checked: boolean) {
+    if (!user || !selectedEventId || request.user_id === user.id || rideBusyKey) return;
+
+    setRideOfferEnabled((current) => ({ ...current, [request.id]: checked }));
+    setRideMessage(null);
+
+    const ownOffer = eventRideOffers.find(
+      (offer) => offer.request_id === request.id && offer.user_id === user.id,
+    );
+
+    if (!checked) {
+      if (!ownOffer) return;
+
+      setRideBusyKey(`offer-delete-${request.id}`);
+      const { error } = await supabase
+        .from("event_ride_offers")
+        .delete()
+        .eq("id", ownOffer.id)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Deleting ride offer failed", error);
+        setRideOfferEnabled((current) => ({ ...current, [request.id]: true }));
+        setRideMessageTone("error");
+        setRideMessage("לא הצלחנו להסיר את הצעת הטרמפ.");
+        setRideBusyKey(null);
+        return;
+      }
+
+      setRideOfferDrafts((current) => {
+        const next = { ...current };
+        delete next[request.id];
+        return next;
+      });
+      await loadEventRides(selectedEventId);
+      setRideMessageTone("success");
+      setRideMessage("הצעת הטרמפ הוסרה.");
+      setRideBusyKey(null);
+      return;
+    }
+
+    setRideBusyKey(`offer-save-${request.id}`);
+    const note = (rideOfferDrafts[request.id] ?? ownOffer?.note ?? "").trim();
+    const { error } = await supabase
+      .from("event_ride_offers")
+      .upsert(
+        {
+          request_id: request.id,
+          event_id: selectedEventId,
+          user_id: user.id,
+          note,
+        },
+        { onConflict: "request_id,user_id" },
+      );
+
+    if (error) {
+      console.error("Saving ride offer failed", error);
+      setRideOfferEnabled((current) => ({ ...current, [request.id]: Boolean(ownOffer) }));
+      setRideMessageTone("error");
+      setRideMessage(
+        error.code === "23514" || error.code === "PGRST204"
+          ? "יש להריץ את קובץ ה־SQL של circles143 ב־Supabase."
+          : "לא הצלחנו לשמור את הצעת הטרמפ.",
+      );
+      setRideBusyKey(null);
+      return;
+    }
+
+    await loadEventRides(selectedEventId);
+    setRideMessageTone("success");
+    setRideMessage("הצעת הטרמפ נשמרה.");
+    setRideBusyKey(null);
+  }
+
+  async function saveRideOffer(request: EventRideRequest, noteValue: string) {
+    if (!user || !selectedEventId || request.user_id === user.id || rideBusyKey) return;
+    const note = noteValue.trim();
+
+    setRideBusyKey(`offer-save-${request.id}`);
+    setRideMessage(null);
+    const { error } = await supabase
+      .from("event_ride_offers")
+      .upsert(
+        {
+          request_id: request.id,
+          event_id: selectedEventId,
+          user_id: user.id,
+          note,
+        },
+        { onConflict: "request_id,user_id" },
+      );
+
+    if (error) {
+      console.error("Saving ride offer failed", error);
+      setRideMessageTone("error");
+      setRideMessage(
+        error.code === "23514" || error.code === "PGRST204"
+          ? "יש להריץ את קובץ ה־SQL של circles143 ב־Supabase."
+          : "לא הצלחנו לשמור את הערת הטרמפ.",
+      );
+      setRideBusyKey(null);
+      return;
+    }
+
+    setRideOfferDrafts((current) => ({ ...current, [request.id]: note }));
+    await loadEventRides(selectedEventId);
+    setRideMessageTone("success");
+    setRideMessage(note ? "הערת הטרמפ נשמרה." : "הערת הטרמפ נמחקה.");
+    setRideBusyKey(null);
+  }
+
   async function sendConversationMessage(body: string) {
     if (!user || !selectedEventId || !activeConversationTopicId) return false;
 
@@ -6389,20 +6834,6 @@ export default function Home() {
           confirmLabel: "כן, למחוק",
           tone: "danger" as const,
         };
-      case "delete_notification":
-        return {
-          title: "מחיקת התראה",
-          message: `למחוק את ההתראה „${pendingMemberAction.notification.title}”?`,
-          confirmLabel: "כן, למחוק",
-          tone: "danger" as const,
-        };
-      case "delete_all_notifications":
-        return {
-          title: "מחיקת כל ההתראות",
-          message: "למחוק את כל ההתראות שלך? לא ניתן לבטל פעולה זו.",
-          confirmLabel: "כן, למחוק הכל",
-          tone: "danger" as const,
-        };
       default:
         return {
           title: "עזיבת המעגל",
@@ -6491,7 +6922,7 @@ export default function Home() {
                         <button
                           type="button"
                           className="notifications-delete-all"
-                          onClick={() => setPendingMemberAction({ type: "delete_all_notifications" })}
+                          onClick={() => void deleteAllNotifications()}
                         >
                           מחיקת הכל
                         </button>
@@ -6526,9 +6957,7 @@ export default function Home() {
                           <button
                             type="button"
                             className="notification-delete-button"
-                            onClick={() =>
-                              setPendingMemberAction({ type: "delete_notification", notification })
-                            }
+                            onClick={() => void deleteNotification(notification)}
                             aria-label={`מחיקת ההתראה ${notification.title}`}
                             title="מחיקת ההתראה"
                           >
@@ -6630,7 +7059,7 @@ export default function Home() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  שיתוף
+                  שיתוף המעגל
                 </a>
                 {canManageCommunity(selectedCommunity.role, user.email) && (
                   <>
@@ -6996,7 +7425,7 @@ export default function Home() {
                   className="secondary-button email-page-trigger whatsapp-page-trigger"
                   onClick={openCommunityWhatsAppComposer}
                 >
-                  שליחת הודעת WhatsApp
+                  שיתוף המעגל ב־WhatsApp
                 </button>
               </div>
             )}
@@ -8032,7 +8461,7 @@ export default function Home() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  שיתוף
+                  שיתוף האירוע
                 </a>
                 {canManageEvents && (
                   <>
@@ -8091,7 +8520,7 @@ export default function Home() {
               )}
               {selectedEvent.location && (
                 <div className="event-location-row">
-                  <span className="event-detail-location">{selectedEvent.location}</span>
+                  <span className="event-detail-location"><strong>מיקום:</strong> {selectedEvent.location}</span>
                   <a
                     className="event-navigation-link"
                     href={getNavigationUrl(selectedEvent.location)}
@@ -8405,52 +8834,139 @@ export default function Home() {
               </section>
             )}
 
+            <section className="event-rides-section" aria-labelledby="event-rides-title">
+              <div className="section-heading-compact">
+                <div>
+                  <h2 id="event-rides-title">טרמפים לאירוע</h2>
+                  <p>מי שצריך טרמפ כותב מאיפה, ומי שיכול לעזור מציע ישירות בטבלה.</p>
+                </div>
+              </div>
+
+              {!eventLockedForCurrentUser && (
+                <div className="ride-request-form">
+                  <label>
+                    <span>אני רוצה טרמפ מאזור</span>
+                    <input
+                      type="text"
+                      value={rideOrigin}
+                      onChange={(event) => setRideOrigin(event.target.value)}
+                      maxLength={160}
+                      placeholder="לדוגמה: ראש העין או צומת מורשה"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="primary-button compact-button"
+                    onClick={() => void saveRideRequest()}
+                    disabled={rideBusyKey === "request" || rideOrigin.trim().length < 2}
+                  >
+                    {rideBusyKey === "request"
+                      ? "שומרים..."
+                      : eventRideRequests.some((request) => request.user_id === user.id)
+                        ? "עדכון הבקשה"
+                        : "הוספה לטבלה"}
+                  </button>
+                </div>
+              )}
+
+              {rideLoading ? (
+                <div className="inline-loading">
+                  <span className="spinner spinner-small" />
+                  טוענים את טבלת הטרמפים...
+                </div>
+              ) : eventRideRequests.length === 0 ? (
+                <p className="attendance-empty-state">עדיין אין בקשות לטרמפ.</p>
+              ) : (
+                <div className="ride-table" role="table" aria-label="בקשות והצעות לטרמפים">
+                  <div className="ride-table-header" role="row">
+                    <span role="columnheader" aria-label="מבקש/ת ומציעים" />
+                    <span role="columnheader">מאיפה</span>
+                  </div>
+
+                  {eventRideRequests.map((request) => {
+                    const requestOffers = eventRideOffers.filter(
+                      (offer) => offer.request_id === request.id,
+                    );
+                    const ownOffer = requestOffers.find((offer) => offer.user_id === user.id);
+                    const offerEnabled = Boolean(rideOfferEnabled[request.id] || ownOffer);
+                    const offerBusy = rideBusyKey?.endsWith(request.id) ?? false;
+
+                    return (
+                      <article className="ride-table-row" role="row" key={request.id}>
+                        <div className="ride-request-main">
+                          <div className="ride-request-person" role="cell">
+                            <div className="ride-person-name-line">
+                              <strong>{request.full_name}</strong>
+                              <WhatsAppIconLink phone={request.phone} label={request.full_name} />
+                            </div>
+                            {requestOffers.length > 0 && (
+                              <div className="ride-offers-list">
+                                <small>מציעים:</small>
+                                {requestOffers.map((offer) => (
+                                  <div className="ride-offer-public" key={offer.id}>
+                                    <span className="ride-person-name-line">
+                                      <strong>{offer.full_name}</strong>
+                                      <WhatsAppIconLink phone={offer.phone} label={offer.full_name} />
+                                    </span>
+                                    {offer.note && <span>{offer.note}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="ride-request-origin" role="cell">
+                            <span>{request.origin}</span>
+                            {request.user_id === user.id && !eventLockedForCurrentUser && (
+                              <button
+                                type="button"
+                                className="member-remove-button ride-request-delete"
+                                onClick={() => void deleteOwnRideRequest(request)}
+                                disabled={offerBusy}
+                              >
+                                מחיקת הבקשה
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {request.user_id !== user.id && !eventLockedForCurrentUser && (
+                          <RideOfferControls
+                            enabled={offerEnabled}
+                            initialNote={rideOfferDrafts[request.id] ?? ownOffer?.note ?? ""}
+                            busy={offerBusy}
+                            onToggle={(checked) => void setRideOfferChecked(request, checked)}
+                            onSave={(note) => void saveRideOffer(request, note)}
+                          />
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+
+              {rideMessage && <p className={`message-box ${rideMessageTone}`}>{rideMessage}</p>}
+            </section>
+
             <section className="event-conversations-section" aria-labelledby="event-conversations-title">
               <div className="section-heading-compact">
                 <div>
-                  <h2 id="event-conversations-title">שיחות באירוע</h2>
+                  <h2 id="event-conversations-title">שיחה באירוע</h2>
                 </div>
               </div>
 
               {conversationLoading ? (
                 <div className="inline-loading">
                   <span className="spinner spinner-small" />
-                  טוענים את השיחות...
+                  טוענים את השיחה...
                 </div>
               ) : conversationTopics.length === 0 ? (
-                <p className="attendance-empty-state">השיחות עדיין אינן זמינות.</p>
+                <p className="attendance-empty-state">השיחה עדיין אינה זמינה.</p>
               ) : (
                 <>
-                  <div className="conversation-topic-tabs" role="tablist" aria-label="נושאי שיחה">
-                    {conversationTopics.map((topic) => {
-                      const messageCount = conversationMessages.filter(
-                        (message) => message.topic_id === topic.id,
-                      ).length;
-                      return (
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={topic.id === activeConversationTopicId}
-                          className={`conversation-topic-tab${
-                            topic.id === activeConversationTopicId ? " is-active" : ""
-                          }`}
-                          onClick={() => {
-                            conversationShouldScrollToEndRef.current = true;
-                            setActiveConversationTopicId(topic.id);
-                            setConversationMessage(null);
-                          }}
-                          key={topic.id}
-                        >
-                          <span>{topic.title}</span>
-                          <small>{messageCount}</small>
-                        </button>
-                      );
-                    })}
-                  </div>
-
                   <div className="conversation-thread" role="tabpanel">
                     {activeConversationMessages.length === 0 ? (
-                      <p className="conversation-empty-state">עדיין אין הודעות בנושא הזה.</p>
+                      <p className="conversation-empty-state">עדיין אין הודעות בשיחה.</p>
                     ) : (
                       <div
                         ref={conversationMessageListRef}
@@ -8559,7 +9075,6 @@ export default function Home() {
                     {activeConversationTopic && (
                       <ConversationComposer
                         topicId={activeConversationTopic.id}
-                        topicTitle={activeConversationTopic.title}
                         onSend={sendConversationMessage}
                       />
                     )}
@@ -8743,7 +9258,7 @@ export default function Home() {
                   className="secondary-button email-page-trigger whatsapp-page-trigger"
                   onClick={openEventWhatsAppComposer}
                 >
-                  שליחת הודעת WhatsApp
+                  שיתוף האירוע ב־WhatsApp
                 </button>
               </div>
             )}
@@ -9136,7 +9651,9 @@ export default function Home() {
           >
             <div className="email-composer-heading whatsapp-composer-heading">
               <div>
-                <span className="email-composer-context whatsapp-composer-context">הודעת WhatsApp</span>
+                <span className="email-composer-context whatsapp-composer-context">
+                  {whatsAppComposer.type === "event" ? "שיתוף האירוע ב־WhatsApp" : "שיתוף המעגל ב־WhatsApp"}
+                </span>
                 <h2 id="whatsapp-composer-title">{whatsAppComposer.title}</h2>
                 <p>
                   כתבו הודעה חופשית. שם {whatsAppComposer.type === "event" ? "האירוע, התאריך והשעה" : "המעגל"} והקישור יצורפו להודעה.
@@ -9198,7 +9715,7 @@ export default function Home() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                שיתוף
+                {whatsAppComposer.type === "event" ? "שיתוף האירוע" : "שיתוף המעגל"}
               </a>
             </div>
           </section>
@@ -9262,16 +9779,27 @@ export default function Home() {
             </button>
             <div className="section-heading-compact member-image-editor-heading">
               <p className="section-kicker">חברי המעגל</p>
-              <h2 id="member-image-editor-title">החלפת תמונה עבור {editingMemberImage.full_name}</h2>
+              <h2 id="member-image-editor-title">עריכת פרופיל עבור {editingMemberImage.full_name}</h2>
             </div>
 
             <div className="member-image-editor-preview">
               <ProfileAvatar
                 imageUrl={adminMemberImage?.previewUrl ?? editingMemberImage.avatar_url ?? editingMemberImage.google_avatar_url}
-                name={editingMemberImage.full_name}
+                name={adminMemberName || editingMemberImage.full_name}
                 size="large"
               />
             </div>
+
+            <label className="member-profile-name-field">
+              <span>שם</span>
+              <input
+                type="text"
+                value={adminMemberName}
+                onChange={(event) => setAdminMemberName(event.target.value)}
+                maxLength={120}
+                disabled={savingMemberImage}
+              />
+            </label>
 
             <input
               ref={adminMemberImageInputRef}
@@ -9309,9 +9837,9 @@ export default function Home() {
                 type="button"
                 className="primary-button"
                 onClick={() => void saveAdminMemberImage()}
-                disabled={savingMemberImage || !adminMemberImage}
+                disabled={savingMemberImage || !adminMemberName.trim()}
               >
-                {savingMemberImage ? "שומרים..." : "שמירת התמונה"}
+                {savingMemberImage ? "שומרים..." : "שמירת הפרטים"}
               </button>
             </div>
           </section>

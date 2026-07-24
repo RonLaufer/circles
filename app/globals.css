@@ -6658,3 +6658,257 @@ body.editor-screen-open {
    Segoe UI/Arial do not expose reliable Hebrew faces for numeric weights
    such as 650, 750, 800 and 900 on every device, so the stylesheet uses
    only the stable 400/600/700 faces and explicitly covers native tables. */
+
+/* circles142: structured event ride requests and offers */
+.event-rides-section {
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: #fff;
+}
+
+.event-rides-section .section-heading-compact p {
+  margin: 5px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.ride-request-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.ride-request-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.ride-request-form input,
+.ride-offer-input-row input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  background: #fff;
+  padding: 8px 10px;
+  color: #111;
+  font: inherit;
+}
+
+.ride-table {
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.ride-table-header,
+.ride-request-main {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.35fr) minmax(170px, 1fr);
+}
+
+.ride-table-header {
+  background: #eef2f7;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.ride-table-header > span,
+.ride-request-main > div {
+  min-width: 0;
+  padding: 11px 12px;
+  border-inline-start: 1px solid var(--line);
+}
+
+.ride-table-header > span:first-child,
+.ride-request-main > div:first-child {
+  border-inline-start: 0;
+}
+
+.ride-table-row + .ride-table-row {
+  border-top: 1px solid var(--line);
+}
+
+.ride-request-person,
+.ride-request-origin {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.ride-person-name-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ride-whatsapp-link {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #16a34a;
+  text-decoration: none;
+}
+
+.ride-whatsapp-link svg {
+  width: 17px;
+  height: 17px;
+}
+
+.ride-whatsapp-link:hover {
+  background: #bbf7d0;
+}
+
+.ride-offers-list {
+  display: grid;
+  gap: 7px;
+  padding-top: 7px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.ride-offers-list > small {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.ride-offer-public {
+  display: grid;
+  gap: 2px;
+  color: #475569;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.ride-offer-public strong {
+  color: #1f2937;
+}
+
+.ride-request-origin > span {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ride-request-delete {
+  width: fit-content;
+  margin-top: 4px;
+}
+
+.ride-offer-editor {
+  display: grid;
+  gap: 10px;
+  padding: 11px 12px;
+  border-top: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.ride-offer-checkbox {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ride-offer-checkbox input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: #111827;
+}
+
+.ride-offer-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .event-rides-section {
+    padding: 16px 12px;
+    border-radius: 18px;
+  }
+
+  .ride-request-form,
+  .ride-offer-input-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ride-request-form button,
+  .ride-offer-input-row button {
+    width: 100%;
+  }
+
+  .ride-table-header,
+  .ride-request-main {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr);
+  }
+
+  .ride-table-header {
+    font-size: 0.8rem;
+    text-align: center;
+  }
+
+  .ride-table-header > span,
+  .ride-request-main > div {
+    padding: 9px 7px;
+    overflow-wrap: anywhere;
+  }
+
+  .ride-request-person,
+  .ride-request-origin {
+    font-size: 0.82rem;
+  }
+
+  .ride-offer-public {
+    font-size: 0.76rem;
+  }
+
+  .ride-whatsapp-link {
+    width: 22px;
+    height: 22px;
+    flex-basis: 22px;
+  }
+
+  .ride-whatsapp-link svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+/* circles143: admin member-name editing and clearer event location */
+.member-profile-name-field {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 16px;
+  text-align: right;
+  font-weight: 700;
+}
+
+.member-profile-name-field input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  background: #fff;
+  padding: 9px 11px;
+  color: #111;
+  font: inherit;
+}
+
+.event-detail-location strong {
+  color: #111;
+}
