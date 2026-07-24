@@ -28,9 +28,9 @@ type Profile = {
   legal_version: string | null;
 };
 
-type CommunityRole = "owner" | "admin" | "member";
+type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.4.6";
+const APP_VERSION = "v1.1.4.8";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -1623,19 +1623,7 @@ function canManageCommunity(
   role: CommunityRole | null | undefined,
   email: string | null | undefined,
 ) {
-  return isSystemAdminEmail(email) || role === "owner" || role === "admin";
-}
-
-function canOwnCommunity(
-  community: Pick<Community, "role" | "created_by"> | null | undefined,
-  userId: string | null | undefined,
-  email: string | null | undefined,
-) {
-  return (
-    isSystemAdminEmail(email) ||
-    community?.role === "owner" ||
-    Boolean(community && userId && community.created_by === userId)
-  );
+  return isSystemAdminEmail(email) || role === "admin";
 }
 
 function communityRoleLabel(role: CommunityRole, email: string | null | undefined) {
@@ -1644,7 +1632,7 @@ function communityRoleLabel(role: CommunityRole, email: string | null | undefine
 }
 
 function roleLabel(role: CommunityRole) {
-  if (role === "owner" || role === "admin") return "מנהל/ת";
+  if (role === "admin") return "מנהל/ת";
   return "חבר/ה";
 }
 
@@ -1652,6 +1640,20 @@ function attendanceStatusLabel(status: AttendanceStatus) {
   if (status === "going") return "מגיע/ה";
   if (status === "maybe") return "אולי";
   return "לא מגיע/ה";
+}
+
+function sortAttendanceByRoleAndName(rows: EventAttendance[]) {
+  return [...rows].sort((first, second) => {
+    const roleDifference =
+      (first.community_role === "admin" ? 0 : 1) -
+      (second.community_role === "admin" ? 0 : 1);
+
+    if (roleDifference !== 0) return roleDifference;
+
+    return first.full_name.localeCompare(second.full_name, "he", {
+      sensitivity: "base",
+    });
+  });
 }
 
 function hideCommunityPlaceholder(community: Pick<Community, "logo_url">) {
@@ -2118,7 +2120,7 @@ export default function Home() {
             .from("community_members")
             .select("community_id,user_id,role")
             .in("community_id", loadedCommunityIds)
-            .in("role", ["owner", "admin"])
+            .eq("role", "admin")
         : { data: [], error: null };
 
       if (managerMembershipError) {
@@ -2216,8 +2218,8 @@ export default function Home() {
       });
 
       mappedMembers.sort((first, second) => {
-        const firstManager = first.role === "owner" || first.role === "admin" ? 0 : 1;
-        const secondManager = second.role === "owner" || second.role === "admin" ? 0 : 1;
+        const firstManager = first.role === "admin" ? 0 : 1;
+        const secondManager = second.role === "admin" ? 0 : 1;
         if (firstManager !== secondManager) return firstManager - secondManager;
         return first.full_name.localeCompare(second.full_name, "he", {
           sensitivity: "base",
@@ -3981,15 +3983,9 @@ export default function Home() {
     );
     if (!currentCommunity || !user) return false;
 
-    if (!canOwnCommunity(currentCommunity, user.id, user.email)) {
+    if (!canManageCommunity(currentCommunity.role, user.email)) {
       setMessageTone("error");
       setMessage("אין לך הרשאה להסיר חברים מהמעגל.");
-      return false;
-    }
-
-    if (member.role === "owner" || member.user_id === currentCommunity.created_by) {
-      setMessageTone("error");
-      setMessage("לא ניתן להסיר את יוצר המעגל.");
       return false;
     }
 
@@ -4004,7 +4000,7 @@ export default function Home() {
     if (error) {
       console.error("Removing circle member failed", error);
       setMessageTone("error");
-      setMessage(`לא הצלחנו להסיר את החבר. ${formatSupabaseError(error)}`);
+      setMessage(error.message?.includes("last_manager_required") ? "לא ניתן להסיר את המנהל האחרון במעגל." : `לא הצלחנו להסיר את החבר. ${formatSupabaseError(error)}`);
       setRemovingUserId(null);
       return false;
     }
@@ -4037,7 +4033,7 @@ export default function Home() {
     if (error) {
       console.error("Changing circle member role failed", error);
       setMessageTone("error");
-      setMessage(`לא הצלחנו לשנות את התפקיד. ${formatSupabaseError(error)}`);
+      setMessage(error.message?.includes("last_manager_required") ? "לא ניתן להפוך את המנהל האחרון לחבר רגיל." : `לא הצלחנו לשנות את התפקיד. ${formatSupabaseError(error)}`);
       setUpdatingRoleUserId(null);
       return false;
     }
@@ -4068,7 +4064,7 @@ export default function Home() {
     if (error) {
       console.error("Leaving circle failed", error);
       setMessageTone("error");
-      setMessage(`לא הצלחנו לעזוב את המעגל. ${formatSupabaseError(error)}`);
+      setMessage(error.message?.includes("last_manager_required") ? "לא ניתן לעזוב את המעגל כל עוד אתה המנהל היחיד שלו." : `לא הצלחנו לעזוב את המעגל. ${formatSupabaseError(error)}`);
       return false;
     }
 
@@ -4797,7 +4793,7 @@ export default function Home() {
     }
 
     const createdCommunity: Community = data
-      ? { ...data, role: "owner", is_member: true, manager_names: [profile?.full_name || user.email || ""] }
+      ? { ...data, role: "admin", is_member: true, manager_names: [profile?.full_name || user.email || ""] }
       : {
           id: communityId,
           name: cleanName,
@@ -4809,7 +4805,7 @@ export default function Home() {
           created_at: createdAt,
           updated_at: createdAt,
           share_token: shareToken,
-          role: "owner",
+          role: "admin",
           is_member: true,
           manager_names: [profile?.full_name || user.email || ""],
         };
@@ -5087,13 +5083,13 @@ export default function Home() {
       if (draft.id) {
         const { error } = await supabase
           .from("event_bring_needs")
-          .update({ item_name: draft.item_name, quantity_needed: 1 })
+          .update({ item_name: draft.item_name.trim(), quantity_needed: 1 })
           .eq("id", draft.id);
         if (error) return error;
       } else {
         const { error } = await supabase.from("event_bring_needs").insert({
           event_id: eventId,
-          item_name: draft.item_name,
+          item_name: draft.item_name.trim(),
           quantity_needed: 1,
           created_by: user.id,
         });
@@ -5901,6 +5897,15 @@ export default function Home() {
       return;
     }
 
+    if (
+      eventBringMode === "planned" &&
+      eventBringNeedDrafts.some((draft) => !draft.item_name.trim())
+    ) {
+      setMessageTone("error");
+      setMessage("יש למלא שם לכל פריט בטבלה המוגדרת מראש.");
+      return;
+    }
+
     setSavingEvent(true);
     setMessage(null);
 
@@ -6646,9 +6651,15 @@ export default function Home() {
   const eventFormImageUrl =
     eventImage?.previewUrl ?? editingEvent?.image_url ?? cloneSourceEvent?.image_url ?? null;
   const ownEventAttendance = eventAttendance.find((attendance) => attendance.user_id === user.id) ?? null;
-  const goingAttendance = eventAttendance.filter((attendance) => attendance.status === "going");
-  const maybeAttendance = eventAttendance.filter((attendance) => attendance.status === "maybe");
-  const notGoingAttendance = eventAttendance.filter((attendance) => attendance.status === "not_going");
+  const goingAttendance = sortAttendanceByRoleAndName(
+    eventAttendance.filter((attendance) => attendance.status === "going"),
+  );
+  const maybeAttendance = sortAttendanceByRoleAndName(
+    eventAttendance.filter((attendance) => attendance.status === "maybe"),
+  );
+  const notGoingAttendance = sortAttendanceByRoleAndName(
+    eventAttendance.filter((attendance) => attendance.status === "not_going"),
+  );
   const totalGoingPeople = goingAttendance.length;
   const freeBringContributions = eventBringContributions.filter(
     (contribution) => contribution.need_id === null,
@@ -6683,25 +6694,23 @@ export default function Home() {
         new Date(second.starts_at).getTime() - new Date(first.starts_at).getTime(),
     );
   const eventManagers = communityMembers.filter(
-    (member) => member.role === "owner" || member.role === "admin",
+    (member) => member.role === "admin",
   );
   const invitedMembership = invitedCommunity
     ? communities.find((community) => community.id === invitedCommunity.id) ?? null
     : null;
-  const canManageCommunityMembers = canOwnCommunity(
-    selectedCommunity,
-    user.id,
-    user.email,
+  const canManageCommunityMembers = Boolean(
+    selectedCommunity && canManageCommunity(selectedCommunity.role, user.email),
   );
   const canRemoveCommunityMembers = canManageCommunityMembers;
   const currentUserCommunityMembership = communityMembers.find(
     (member) => member.user_id === user.id,
   ) ?? null;
+  const communityManagerCount = eventManagers.length;
   const canLeaveSelectedCommunity = Boolean(
     selectedCommunity &&
       (selectedCommunity.is_member || currentUserCommunityMembership) &&
-      (isSystemAdminEmail(user.email) ||
-        (selectedCommunity.role !== "owner" && selectedCommunity.created_by !== user.id)),
+      (currentUserCommunityMembership?.role !== "admin" || communityManagerCount > 1),
   );
   const canManageEvents = Boolean(
     selectedCommunity && canManageCommunity(selectedCommunity.role, user.email),
@@ -7295,37 +7304,50 @@ export default function Home() {
                         {member.city && <span className="member-city">{member.city}</span>}
                         {member.phone && <PhoneLink phone={member.phone} />}
                       </div>
-                      {canManageCommunityMembers &&
-                        member.role !== "owner" &&
-                        member.user_id !== selectedCommunity.created_by &&
-                        member.user_id !== user.id && (
-                          <div className="member-management-actions">
+                      {canManageCommunityMembers && (
+                        <div className="member-management-actions">
+                          <button
+                            type="button"
+                            className="member-role-button"
+                            onClick={() =>
+                              setPendingMemberAction({
+                                type: "role",
+                                member,
+                                nextRole: member.role === "admin" ? "member" : "admin",
+                              })
+                            }
+                            disabled={
+                              updatingRoleUserId === member.user_id ||
+                              (member.role === "admin" && communityManagerCount <= 1)
+                            }
+                            title={
+                              member.role === "admin" && communityManagerCount <= 1
+                                ? "לא ניתן להפוך את המנהל האחרון לחבר רגיל"
+                                : undefined
+                            }
+                          >
+                            {member.role === "admin" ? "הפיכה לחבר/ה רגיל/ה" : "הפיכה למנהל/ת"}
+                          </button>
+                          {canRemoveCommunityMembers && member.user_id !== user.id && (
                             <button
                               type="button"
-                              className="member-role-button"
-                              onClick={() =>
-                                setPendingMemberAction({
-                                  type: "role",
-                                  member,
-                                  nextRole: member.role === "admin" ? "member" : "admin",
-                                })
+                              className="member-remove-button"
+                              onClick={() => setPendingMemberAction({ type: "remove", member })}
+                              disabled={
+                                removingUserId === member.user_id ||
+                                (member.role === "admin" && communityManagerCount <= 1)
                               }
-                              disabled={updatingRoleUserId === member.user_id}
+                              title={
+                                member.role === "admin" && communityManagerCount <= 1
+                                  ? "לא ניתן להסיר את המנהל האחרון"
+                                  : undefined
+                              }
                             >
-                              {member.role === "admin" ? "הפיכה לחבר/ה רגיל/ה" : "הפיכה למנהל/ת"}
+                              {removingUserId === member.user_id ? "מסירים..." : "הסרה"}
                             </button>
-                            {canRemoveCommunityMembers && (
-                              <button
-                                type="button"
-                                className="member-remove-button"
-                                onClick={() => setPendingMemberAction({ type: "remove", member })}
-                                disabled={removingUserId === member.user_id}
-                              >
-                                {removingUserId === member.user_id ? "מסירים..." : "הסרה"}
-                              </button>
-                            )}
-                          </div>
-                        )}
+                          )}
+                        </div>
+                      )}
                       {isSystemAdminEmail(user.email) &&
                         (member.user_id === user.id || isSystemAdminEmail(member.email)) &&
                         canLeaveSelectedCommunity && (
@@ -7595,7 +7617,7 @@ export default function Home() {
                   תנאי שימוש ופרטיות
                 </button>
               </div>
-              <div className="section-heading">
+              <div className="section-heading profile-section-heading">
                 <div>
                   <p className="section-kicker">הפרופיל שלי</p>
                   <h2>קצת עליי</h2>
@@ -7639,7 +7661,6 @@ export default function Home() {
                       >
                         {profile.avatar_url || profileImage ? "החלפת תמונה" : "צירוף תמונה"}
                       </button>
-                      <small>התמונה תכווץ לפני ההעלאה. הקובץ לאחר הכיווץ לא יעלה על 1MB.</small>
                     </div>
                   </div>
 
@@ -8464,7 +8485,7 @@ export default function Home() {
               </button>
             </div>
 
-            {editingCommunity && canOwnCommunity(editingCommunity, user.id, user.email) && (
+            {editingCommunity && canManageCommunity(editingCommunity.role, user.email) && (
               <div className="event-management-actions" aria-label="ניהול המעגל">
                 <button
                   type="button"
@@ -8729,9 +8750,16 @@ export default function Home() {
                           {bringDisplayRows.map((row) => {
                             if (row.kind === "need") {
                               const need = row.need;
-                              const needContributions = eventBringContributions.filter(
-                                (contribution) => contribution.need_id === need.id,
-                              );
+                              const needContributions = eventBringContributions
+                                .filter((contribution) => contribution.need_id === need.id)
+                                .sort((first, second) => {
+                                  const firstIsCurrentUser = first.user_id === user.id;
+                                  const secondIsCurrentUser = second.user_id === user.id;
+                                  if (firstIsCurrentUser !== secondIsCurrentUser) {
+                                    return firstIsCurrentUser ? -1 : 1;
+                                  }
+                                  return new Date(first.created_at).getTime() - new Date(second.created_at).getTime();
+                                });
                               const ownContribution = needContributions.find(
                                 (contribution) => contribution.user_id === user.id,
                               );
@@ -9136,7 +9164,7 @@ export default function Home() {
                               />
                               <div className="attendance-person-copy">
                                 <strong>{attendance.full_name}</strong>
-                                {(attendance.community_role === "owner" || attendance.community_role === "admin") && (
+                                {attendance.community_role === "admin" && (
                                   <span className="manager-badge">מנהל/ת</span>
                                 )}
                                 {attendance.city && <span className="attendance-city">{attendance.city}</span>}
@@ -9574,7 +9602,24 @@ export default function Home() {
                       <div className="bring-needs-draft-list">
                         {eventBringNeedDrafts.map((draft) => (
                           <div className="bring-need-draft-row" key={draft.client_id}>
-                            <span><strong>{draft.item_name}</strong></span>
+                            <label>
+                              <span className="sr-only">עריכת פריט מוכן מראש</span>
+                              <input
+                                type="text"
+                                value={draft.item_name}
+                                onChange={(event) =>
+                                  setEventBringNeedDrafts((current) =>
+                                    current.map((item) =>
+                                      item.client_id === draft.client_id
+                                        ? { ...item, item_name: event.target.value }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                                maxLength={160}
+                                aria-label={`עריכת הפריט ${draft.item_name}`}
+                              />
+                            </label>
                             <button
                               type="button"
                               className="member-remove-button"

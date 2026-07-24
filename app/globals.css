@@ -477,6 +477,10 @@ button:disabled {
   min-width: 0;
 }
 
+.profile-section-heading {
+  border-bottom: 0;
+}
+
 .section-heading p:not(.section-kicker) {
   max-width: 630px;
   margin: 9px 0 0;
@@ -6927,4 +6931,30 @@ body.editor-screen-open {
     flex: 1 1 0;
     min-width: 0;
   }
+}
+
+/* circles147: editable planned items and seamless event managers section */
+.event-managers-section {
+  border-top: 0;
+}
+
+.bring-need-draft-row > label {
+  min-width: 0;
+  flex: 1;
+}
+
+.bring-need-draft-row input {
+  width: 100%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

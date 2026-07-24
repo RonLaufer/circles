@@ -27,7 +27,7 @@ type RequestBody = {
 
 type MembershipRow = {
   user_id: string;
-  role: "owner" | "admin" | "member";
+  role: "admin" | "member";
 };
 
 type ProfileRow = {
@@ -149,13 +149,10 @@ export async function POST(request: Request) {
     .select("role")
     .eq("community_id", communityId)
     .eq("user_id", authUser.id)
-    .maybeSingle<{ role: "owner" | "admin" | "member" }>();
+    .maybeSingle<{ role: "admin" | "member" }>();
 
   const canSend =
-    isSystemAdmin(senderEmail) ||
-    community.created_by === authUser.id ||
-    senderMembership?.role === "owner" ||
-    senderMembership?.role === "admin";
+    isSystemAdmin(senderEmail) || senderMembership?.role === "admin";
 
   if (!canSend) {
     return NextResponse.json({ message: "רק מנהלי המעגל יכולים לשלוח מיילים." }, { status: 403 });
@@ -178,7 +175,7 @@ export async function POST(request: Request) {
 
   if (audience === "managers") {
     targetUserIds = memberships
-      .filter((membership: MembershipRow) => membership.role === "owner" || membership.role === "admin")
+      .filter((membership: MembershipRow) => membership.role === "admin")
       .map((membership: MembershipRow) => membership.user_id);
   }
 
