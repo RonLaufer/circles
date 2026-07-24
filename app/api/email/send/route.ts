@@ -195,7 +195,7 @@ export async function POST(request: Request) {
     }
 
     contextTitle = eventRow.title;
-    contextUrl = `${PRODUCTION_ORIGIN}/event/${eventRow.share_token}`;
+    contextUrl = `${PRODUCTION_ORIGIN}/event/${eventRow.share_token}?open=1`;
 
     if (audience.startsWith("event_")) {
       const { data: attendanceRows, error: attendanceError } = await supabase

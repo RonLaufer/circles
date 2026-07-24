@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { getEventShareTokenCandidates } from "@/lib/event-share-token";
 import { RichText } from "@/app/components/RichText";
 import {
   CompressedVideoTooLargeError,
@@ -29,7 +30,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.4.0";
+const APP_VERSION = "v1.1.4.1";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -1665,12 +1666,12 @@ function getEventBrowserTitle(event: Pick<CommunityEvent, "title" | "starts_at">
 
 function getEventShareUrl(shareToken: string) {
   if (typeof window === "undefined") {
-    return `${PRODUCTION_ORIGIN}/event/${shareToken}`;
+    return `${PRODUCTION_ORIGIN}/event/${shareToken}?open=1`;
   }
 
   const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const origin = isLocalhost ? PRODUCTION_ORIGIN : window.location.origin;
-  return `${origin}/event/${shareToken}`;
+  return `${origin}/event/${shareToken}?open=1`;
 }
 
 function getEventShareText(event: SharedEvent | CommunityEvent, url: string) {
@@ -2628,18 +2629,43 @@ export default function Home() {
   const loadSharedEvent = useCallback(
     async (shareToken: string) => {
       setInviteLoading(true);
-      const { data, error } = await supabase.rpc("get_shared_event", {
-        target_share_token: shareToken,
-      });
+      const candidates = getEventShareTokenCandidates(shareToken);
+      const results = await Promise.all(
+        candidates.map((candidate) =>
+          supabase.rpc("get_shared_event", {
+            target_share_token: candidate,
+          }),
+        ),
+      );
+      const match = results.find(({ data, error }) => !error && data?.[0]);
+      const sharedEvent = match?.data?.[0] ? (match.data[0] as SharedEvent) : null;
+      const lastError = results.find(({ error }) => error)?.error ?? null;
 
-      if (error || !data?.[0]) {
-        console.error("Loading shared event failed", error);
+      if (!sharedEvent) {
+        console.error("Loading shared event failed", lastError);
         setInvitedEvent(null);
         setInvitedCommunity(null);
         setMessageTone("error");
         setMessage("קישור האירוע אינו תקין או שהאירוע כבר אינו זמין.");
       } else {
-        const sharedEvent = data[0] as SharedEvent;
+        const resolvedToken = String(sharedEvent.share_token);
+        setPendingEventShareToken(resolvedToken);
+        if (initialNavigationTargetRef.current?.eventToken) {
+          initialNavigationTargetRef.current = {
+            ...initialNavigationTargetRef.current,
+            eventToken: resolvedToken,
+          };
+        }
+        const currentParams = new URLSearchParams(window.location.search);
+        if (currentParams.get("event") !== resolvedToken) {
+          currentParams.set("event", resolvedToken);
+          window.history.replaceState(
+            { circlesApp: true, view: "event-pending" },
+            "",
+            `/?${currentParams.toString()}`,
+          );
+        }
+        setMessage(null);
         setInvitedEvent(sharedEvent);
         setInvitedCommunity({
           id: sharedEvent.community_id,

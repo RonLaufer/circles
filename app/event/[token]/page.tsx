@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { EventRedirect } from "./EventRedirect";
+import { getEventShareTokenCandidates } from "@/lib/event-share-token";
 
 type SharedEvent = {
   id: string;
@@ -24,13 +25,20 @@ const SITE_ORIGIN = "https://circles-community.vercel.app";
 const DEFAULT_SHARE_IMAGE = "/circles-system-share.png";
 
 const getSharedEvent = cache(async (token: string) => {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("get_shared_event", {
-    target_share_token: token,
-  });
+  const candidates = getEventShareTokenCandidates(token);
+  if (!candidates.length) return null;
 
-  if (error || !data?.[0]) return null;
-  return data[0] as SharedEvent;
+  const supabase = await createClient();
+  const results = await Promise.all(
+    candidates.map((candidate) =>
+      supabase.rpc("get_shared_event", {
+        target_share_token: candidate,
+      }),
+    ),
+  );
+
+  const match = results.find(({ data, error }) => !error && data?.[0]);
+  return match?.data?.[0] ? (match.data[0] as SharedEvent) : null;
 });
 
 function formatSharedEventDate(startsAt: string, endsAt: string | null) {
