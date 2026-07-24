@@ -29,7 +29,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.3.5";
+const APP_VERSION = "v1.1.4.0";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -70,6 +70,15 @@ const FALLBACK_MEDIA_DEFAULTS: MediaDefaults = {
 type SelectedImage = {
   blob: Blob;
   previewUrl: string;
+};
+
+type ProfileCropTarget = "profile" | "admin";
+
+type ProfileCropRequest = {
+  target: ProfileCropTarget;
+  sourceUrl: string;
+  originalBytes: number;
+  personName: string;
 };
 
 class CompressedImageTooLargeError extends Error {
@@ -340,7 +349,7 @@ type SystemUsageLogRow = {
   community_names: string[];
   duration_seconds: number;
   started_at: string;
-  last_heartbeat_at: string;
+  ended_at: string;
 };
 
 type PendingMemberAction =
@@ -1143,6 +1152,323 @@ async function compressImage(file: File, maxOutputBytes = DEFAULT_IMAGE_MAX_BYTE
   }
 }
 
+
+async function createSelectedImageFromSquareCanvas(
+  sourceCanvas: HTMLCanvasElement,
+  beforeBytes: number,
+  maxOutputBytes = DEFAULT_IMAGE_MAX_BYTES,
+): Promise<SelectedImage> {
+  const dimensionScales = [1, 0.85, 0.7, 0.55, 0.4];
+  const qualities = [0.9, 0.8, 0.7, 0.58, 0.46, 0.34, 0.25];
+  let lastCompressedSize = beforeBytes;
+
+  for (const dimensionScale of dimensionScales) {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(sourceCanvas.width * dimensionScale));
+    canvas.height = canvas.width;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("image_compression_failed");
+    context.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height);
+
+    for (const quality of qualities) {
+      const compressed = await canvasToBlob(canvas, quality);
+      lastCompressedSize = compressed.size;
+      if (compressed.size <= maxOutputBytes) {
+        return {
+          blob: compressed,
+          previewUrl: URL.createObjectURL(compressed),
+        };
+      }
+    }
+  }
+
+  throw new CompressedImageTooLargeError(beforeBytes, lastCompressedSize, maxOutputBytes);
+}
+
+function clampNumber(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function ProfileImageCropper({
+  request,
+  onCancel,
+  onConfirm,
+}: {
+  request: ProfileCropRequest;
+  onCancel: () => void;
+  onConfirm: (image: SelectedImage) => void;
+}) {
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
+  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
+  const [frameSize, setFrameSize] = useState(280);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [processing, setProcessing] = useState(false);
+  const [cropError, setCropError] = useState<string | null>(null);
+
+  const getGeometry = useCallback(
+    (nextZoom = zoom) => {
+      if (!naturalSize.width || !naturalSize.height || !frameSize) {
+        return {
+          scale: 1,
+          displayWidth: frameSize,
+          displayHeight: frameSize,
+          maxOffsetX: 0,
+          maxOffsetY: 0,
+        };
+      }
+
+      const coverScale = Math.max(
+        frameSize / naturalSize.width,
+        frameSize / naturalSize.height,
+      );
+      const scale = coverScale * nextZoom;
+      const displayWidth = naturalSize.width * scale;
+      const displayHeight = naturalSize.height * scale;
+      return {
+        scale,
+        displayWidth,
+        displayHeight,
+        maxOffsetX: Math.max(0, (displayWidth - frameSize) / 2),
+        maxOffsetY: Math.max(0, (displayHeight - frameSize) / 2),
+      };
+    },
+    [frameSize, naturalSize.height, naturalSize.width, zoom],
+  );
+
+  const clampOffset = useCallback(
+    (candidate: { x: number; y: number }, nextZoom = zoom) => {
+      const geometry = getGeometry(nextZoom);
+      return {
+        x: clampNumber(candidate.x, -geometry.maxOffsetX, geometry.maxOffsetX),
+        y: clampNumber(candidate.y, -geometry.maxOffsetY, geometry.maxOffsetY),
+      };
+    },
+    [getGeometry, zoom],
+  );
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+
+    const updateFrameSize = () => setFrameSize(Math.max(1, frame.clientWidth));
+    updateFrameSize();
+
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateFrameSize);
+    observer?.observe(frame);
+    return () => observer?.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setOffset((current) => clampOffset(current));
+  }, [clampOffset, frameSize, naturalSize, zoom]);
+
+  function updateZoom(nextZoom: number) {
+    const normalizedZoom = clampNumber(nextZoom, 1, 3);
+    setZoom(normalizedZoom);
+    setOffset((current) => clampOffset(current, normalizedZoom));
+  }
+
+  function beginDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (processing) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: offset.x,
+      offsetY: offset.y,
+    };
+  }
+
+  function moveImage(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setOffset(
+      clampOffset({
+        x: drag.offsetX + event.clientX - drag.startX,
+        y: drag.offsetY + event.clientY - drag.startY,
+      }),
+    );
+  }
+
+  function endDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  async function confirmCrop() {
+    const image = imageRef.current;
+    if (!image || !naturalSize.width || !naturalSize.height) return;
+
+    setProcessing(true);
+    setCropError(null);
+
+    try {
+      const geometry = getGeometry();
+      const imageLeft = (frameSize - geometry.displayWidth) / 2 + offset.x;
+      const imageTop = (frameSize - geometry.displayHeight) / 2 + offset.y;
+      const sourceX = clampNumber(-imageLeft / geometry.scale, 0, naturalSize.width);
+      const sourceY = clampNumber(-imageTop / geometry.scale, 0, naturalSize.height);
+      const sourceSquare = Math.min(
+        frameSize / geometry.scale,
+        naturalSize.width - sourceX,
+        naturalSize.height - sourceY,
+      );
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 1000;
+      canvas.height = 1000;
+      const context = canvas.getContext("2d");
+      if (!context || sourceSquare <= 0) throw new Error("image_crop_failed");
+      context.drawImage(
+        image,
+        sourceX,
+        sourceY,
+        sourceSquare,
+        sourceSquare,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+
+      const selectedImage = await createSelectedImageFromSquareCanvas(
+        canvas,
+        request.originalBytes,
+      );
+      onConfirm(selectedImage);
+    } catch (error) {
+      setCropError(
+        error instanceof CompressedImageTooLargeError
+          ? formatCompressedImageTooLarge(error)
+          : "לא הצלחנו להכין את התמונה. נסו לבחור תמונה אחרת.",
+      );
+      setProcessing(false);
+    }
+  }
+
+  const geometry = getGeometry();
+
+  return (
+    <div className="modal-backdrop profile-crop-backdrop" role="presentation">
+      <section
+        className="modal-card profile-crop-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-crop-title"
+      >
+        <button
+          type="button"
+          className="modal-close"
+          onClick={onCancel}
+          aria-label="סגירה"
+          disabled={processing}
+        >
+          ×
+        </button>
+        <div className="section-heading-compact profile-crop-heading">
+          <p className="section-kicker">תמונת פרופיל</p>
+          <h2 id="profile-crop-title">סידור התמונה של {request.personName}</h2>
+          <small>גררו את התמונה בתוך הריבוע והשתמשו בזום כדי לבחור את החיתוך.</small>
+        </div>
+
+        <div
+          ref={frameRef}
+          className="profile-crop-frame"
+          onPointerDown={beginDrag}
+          onPointerMove={moveImage}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          <img
+            ref={imageRef}
+            src={request.sourceUrl}
+            alt="תצוגה מקדימה לחיתוך"
+            draggable={false}
+            onLoad={(event: React.SyntheticEvent<HTMLImageElement>) => {
+              setNaturalSize({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              });
+              setOffset({ x: 0, y: 0 });
+              setZoom(1);
+            }}
+            style={{
+              width: `${geometry.displayWidth}px`,
+              height: `${geometry.displayHeight}px`,
+              transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`,
+            }}
+          />
+        </div>
+
+        <div className="profile-crop-zoom-row">
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            onClick={() => updateZoom(zoom - 0.15)}
+            disabled={processing || zoom <= 1}
+            aria-label="הקטנת התמונה"
+          >
+            −
+          </button>
+          <label>
+            <span>הגדלה והקטנה</span>
+            <input
+              dir="ltr"
+              type="range"
+              min="1"
+              max="3"
+              step="0.05"
+              value={zoom}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => updateZoom(Number(event.target.value))}
+              disabled={processing}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            onClick={() => updateZoom(zoom + 0.15)}
+            disabled={processing || zoom >= 3}
+            aria-label="הגדלת התמונה"
+          >
+            +
+          </button>
+        </div>
+
+        {cropError && <p className="message-box error">{cropError}</p>}
+
+        <div className="profile-crop-actions">
+          <button type="button" className="secondary-button" onClick={onCancel} disabled={processing}>
+            ביטול
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void confirmCrop()}
+            disabled={processing || !naturalSize.width}
+          >
+            {processing ? "מכינים..." : "אישור החיתוך"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function isSystemAdminEmail(email: string | null | undefined) {
   return email?.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
 }
@@ -1272,6 +1598,31 @@ function formatUsageDuration(value: number) {
   return parts.join(" ו־");
 }
 
+function formatUsageSessionRange(startedAt: string, endedAt: string) {
+  const start = new Date(startedAt);
+  const end = new Date(endedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "";
+
+  const dateFormatter = new Intl.DateTimeFormat("he-IL", {
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  });
+  const timeFormatter = new Intl.DateTimeFormat("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const startDate = dateFormatter.format(start);
+  const endDate = dateFormatter.format(end);
+
+  if (startDate === endDate) {
+    return `${startDate} משעה ${timeFormatter.format(start)} עד ${timeFormatter.format(end)}`;
+  }
+
+  return `${startDate} משעה ${timeFormatter.format(start)} עד ${endDate} בשעה ${timeFormatter.format(end)}`;
+}
+
 function formatEventDate(startsAt: string, endsAt?: string | null) {
   const start = new Date(startsAt);
   if (Number.isNaN(start.getTime())) return "";
@@ -1339,6 +1690,7 @@ function getEventShareText(event: SharedEvent | CommunityEvent, url: string) {
 export default function Home() {
   const supabase = useMemo(() => createClient(), []);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+  const adminMemberImageInputRef = useRef<HTMLInputElement | null>(null);
   const communityImageInputRef = useRef<HTMLInputElement | null>(null);
   const communityVideoInputRef = useRef<HTMLInputElement | null>(null);
   const eventImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1365,6 +1717,7 @@ export default function Home() {
   const [communityDescription, setCommunityDescription] = useState("");
   const [communityRequiresApproval, setCommunityRequiresApproval] = useState(true);
   const [profileImage, setProfileImage] = useState<SelectedImage | null>(null);
+  const [profileCropRequest, setProfileCropRequest] = useState<ProfileCropRequest | null>(null);
   const [communityImage, setCommunityImage] = useState<SelectedImage | null>(null);
   const [communityVideo, setCommunityVideo] = useState<SelectedVideo | null>(null);
   const [communityVideoNotice, setCommunityVideoNotice] = useState<VideoProcessNotice | null>(null);
@@ -1461,6 +1814,10 @@ export default function Home() {
   const [systemUsageLog, setSystemUsageLog] = useState<SystemUsageLogRow[]>([]);
   const [systemUsageLoading, setSystemUsageLoading] = useState(false);
   const [systemUsageError, setSystemUsageError] = useState<string | null>(null);
+  const [editingMemberImage, setEditingMemberImage] = useState<CommunityMember | null>(null);
+  const [adminMemberImage, setAdminMemberImage] = useState<SelectedImage | null>(null);
+  const [savingMemberImage, setSavingMemberImage] = useState(false);
+  const [memberImageMessage, setMemberImageMessage] = useState<string | null>(null);
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(null);
   const [pendingEventShareToken, setPendingEventShareToken] = useState<string | null>(null);
   const [pendingEventOpenId, setPendingEventOpenId] = useState<string | null>(null);
@@ -1535,6 +1892,12 @@ export default function Home() {
   const clearSelectedImage = useCallback((image: SelectedImage | null) => {
     if (image?.previewUrl) URL.revokeObjectURL(image.previewUrl);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (profileCropRequest?.sourceUrl) URL.revokeObjectURL(profileCropRequest.sourceUrl);
+    };
+  }, [profileCropRequest]);
 
   const clearSelectedVideo = useCallback((video: SelectedVideo | null) => {
     if (video?.previewUrl) URL.revokeObjectURL(video.previewUrl);
@@ -1738,13 +2101,18 @@ export default function Home() {
     setSystemUsageLoading(true);
     setSystemUsageError(null);
 
+    const { error: finalizeError } = await supabase.rpc("touch_user_presence");
+    if (finalizeError) {
+      console.error("Finalizing inactive usage sessions failed", finalizeError);
+    }
+
     const { data, error } = await supabase.rpc("get_system_admin_usage_log");
     if (error) {
       console.error("Loading system usage log failed", error);
       setSystemUsageLog([]);
       setSystemUsageError(
         error.code === "42883" || error.code === "42P01" || error.code === "PGRST202"
-          ? "יש להריץ את קובץ ה־SQL של circles134 ב־Supabase."
+          ? "יש להריץ את קובץ ה־SQL של circles137 ב־Supabase."
           : "לא הצלחנו לטעון את לוג השימוש במערכת.",
       );
       setSystemUsageLoading(false);
@@ -1759,7 +2127,7 @@ export default function Home() {
         community_names: string[] | null;
         duration_seconds: number | string | null;
         started_at: string;
-        last_heartbeat_at: string;
+        ended_at: string;
       }) => ({
         session_id: row.session_id,
         user_id: row.user_id,
@@ -1767,7 +2135,7 @@ export default function Home() {
         community_names: Array.isArray(row.community_names) ? row.community_names : [],
         duration_seconds: Number(row.duration_seconds ?? 0),
         started_at: row.started_at,
-        last_heartbeat_at: row.last_heartbeat_at,
+        ended_at: row.ended_at,
       })),
     );
     setSystemUsageLoading(false);
@@ -2632,8 +3000,6 @@ export default function Home() {
     }
 
     void loadSystemUsageLog();
-    const timer = window.setInterval(() => void loadSystemUsageLog(), 30_000);
-    return () => window.clearInterval(timer);
   }, [loadSystemUsageLog, systemUsageScreenOpen, user]);
 
   useEffect(() => {
@@ -3518,18 +3884,81 @@ export default function Home() {
     await copyEventShareLink(event);
   }
 
+  async function prepareProfileImageForCrop(file: File, target: ProfileCropTarget) {
+    if (target === "admin") setMemberImageMessage(null);
+    else setMessage(null);
+
+    if (!isSupportedImageFile(file)) {
+      const errorMessage = "לא הצלחנו לקרוא את התמונה. נסו לבחור קובץ תמונה אחר.";
+      if (target === "admin") setMemberImageMessage(errorMessage);
+      else {
+        setMessageTone("error");
+        setMessage(errorMessage);
+      }
+      return;
+    }
+
+    try {
+      const sourceBlob = isHeicImageFile(file) ? await convertHeicToJpeg(file) : file;
+      const sourceUrl = URL.createObjectURL(sourceBlob);
+      setProfileCropRequest({
+        target,
+        sourceUrl,
+        originalBytes: file.size,
+        personName:
+          target === "admin"
+            ? editingMemberImage?.full_name ?? "המשתמש"
+            : profile?.full_name ?? (fullName.trim() || "המשתמש"),
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error && error.message === "heic_conversion_failed"
+          ? "לא הצלחנו להמיר את קובץ ה־HEIC/HEIF לתמונה רגילה. נסו לבחור את הקובץ שוב או לבחור תמונה אחרת."
+          : "לא הצלחנו לקרוא את התמונה. נסו לבחור קובץ תמונה אחר.";
+      if (target === "admin") setMemberImageMessage(errorMessage);
+      else {
+        setMessageTone("error");
+        setMessage(errorMessage);
+      }
+    }
+  }
+
+  function closeProfileImageCropper() {
+    setProfileCropRequest(null);
+  }
+
+  function acceptProfileImageCrop(image: SelectedImage) {
+    if (!profileCropRequest) {
+      clearSelectedImage(image);
+      return;
+    }
+
+    if (profileCropRequest.target === "admin") {
+      setAdminMemberImage((current) => {
+        clearSelectedImage(current);
+        return image;
+      });
+    } else {
+      setProfileImage((current) => {
+        clearSelectedImage(current);
+        return image;
+      });
+    }
+    setProfileCropRequest(null);
+  }
+
   async function prepareImage(file: File, target: "profile" | "community" | "event") {
     setMessage(null);
+
+    if (target === "profile") {
+      await prepareProfileImageForCrop(file, "profile");
+      return;
+    }
 
     try {
       const compressed = await compressImage(file);
 
-      if (target === "profile") {
-        setProfileImage((current) => {
-          clearSelectedImage(current);
-          return compressed;
-        });
-      } else if (target === "community") {
+      if (target === "community") {
         setCommunityImage((current) => {
           clearSelectedImage(current);
           return compressed;
@@ -3629,6 +4058,76 @@ export default function Home() {
 
     const { data } = supabase.storage.from(bucket).getPublicUrl(path);
     return `${data.publicUrl}?v=${Date.now()}`;
+  }
+
+  function openMemberImageEditor(member: CommunityMember) {
+    if (!user || !isSystemAdminEmail(user.email)) return;
+    setAdminMemberImage((current) => {
+      clearSelectedImage(current);
+      return null;
+    });
+    setMemberImageMessage(null);
+    setEditingMemberImage(member);
+  }
+
+  function closeMemberImageEditor() {
+    if (savingMemberImage) return;
+    setAdminMemberImage((current) => {
+      clearSelectedImage(current);
+      return null;
+    });
+    setMemberImageMessage(null);
+    setEditingMemberImage(null);
+  }
+
+  async function prepareAdminMemberImage(file: File) {
+    await prepareProfileImageForCrop(file, "admin");
+  }
+
+  async function saveAdminMemberImage() {
+    if (!user || !isSystemAdminEmail(user.email) || !editingMemberImage || !adminMemberImage) return;
+
+    setSavingMemberImage(true);
+    setMemberImageMessage(null);
+
+    try {
+      const avatarUrl = await uploadPublicImage(
+        "profile-images",
+        `${editingMemberImage.user_id}/avatar.jpg`,
+        adminMemberImage.blob,
+      );
+
+      const { error } = await supabase.rpc("set_system_admin_profile_avatar", {
+        target_user_id: editingMemberImage.user_id,
+        new_avatar_url: avatarUrl,
+      });
+      if (error) throw error;
+
+      setCommunityMembers((current) =>
+        current.map((member) =>
+          member.user_id === editingMemberImage.user_id
+            ? { ...member, avatar_url: avatarUrl }
+            : member,
+        ),
+      );
+      setAdminMemberImage((current) => {
+        clearSelectedImage(current);
+        return null;
+      });
+      setEditingMemberImage(null);
+      setMessageTone("success");
+      setMessage(`תמונת הפרופיל של ${editingMemberImage.full_name} עודכנה.`);
+    } catch (error) {
+      console.error("Updating member profile image failed", error);
+      const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+      setMemberImageMessage(
+        code === "42883" || code === "42501" || code === "PGRST202"
+          ? "יש להריץ את קובץ ה־SQL של circles136 ב־Supabase."
+          : "העלאת תמונת הפרופיל לא הצליחה. נסו שוב.",
+      );
+    } finally {
+      setSavingMemberImage(false);
+    }
   }
 
   async function saveProfile() {
@@ -5376,7 +5875,8 @@ export default function Home() {
     const canCloseLegalScreen = !user || legalConsentAccepted;
 
     return (
-      <LegalScreen
+      <>
+        <LegalScreen
         checked={legalConsentChecked}
         onCheckedChange={updateLegalConsentChecked}
         onAccept={acceptLegalConsent}
@@ -5405,7 +5905,15 @@ export default function Home() {
         onProfileImageSelected={(file) => void prepareImage(file, "profile")}
         message={message}
         messageTone={messageTone}
-      />
+        />
+        {profileCropRequest && (
+          <ProfileImageCropper
+            request={profileCropRequest}
+            onCancel={closeProfileImageCropper}
+            onConfirm={acceptProfileImageCrop}
+          />
+        )}
+      </>
     );
   }
 
@@ -6263,12 +6771,28 @@ export default function Home() {
                 <div className="members-grid">
                   {communityMembers.map((member) => (
                     <article className="member-card" key={member.user_id}>
-                      <ProfileAvatar
-                        imageUrl={member.avatar_url ?? member.google_avatar_url}
-                        name={member.full_name}
-                        size="small"
-                        onOpen={openImage}
-                      />
+                      {isSystemAdminEmail(user.email) ? (
+                        <button
+                          type="button"
+                          className="member-avatar-edit-button"
+                          onClick={() => openMemberImageEditor(member)}
+                          aria-label={`החלפת תמונת הפרופיל של ${member.full_name}`}
+                          title="החלפת תמונת פרופיל"
+                        >
+                          <ProfileAvatar
+                            imageUrl={member.avatar_url ?? member.google_avatar_url}
+                            name={member.full_name}
+                            size="small"
+                          />
+                        </button>
+                      ) : (
+                        <ProfileAvatar
+                          imageUrl={member.avatar_url ?? member.google_avatar_url}
+                          name={member.full_name}
+                          size="small"
+                          onOpen={openImage}
+                        />
+                      )}
                       <div>
                         <strong>{member.full_name}</strong>
                         <span>{roleLabel(member.role)}</span>
@@ -6855,20 +7379,12 @@ export default function Home() {
               >
                 חזרה לאזור האישי
               </button>
-              <button
-                type="button"
-                className="secondary-button compact-button"
-                onClick={() => void loadSystemUsageLog()}
-                disabled={systemUsageLoading}
-              >
-                {systemUsageLoading ? "מרעננים..." : "רענון"}
-              </button>
             </div>
 
             <div className="section-heading-compact system-usage-screen-heading">
               <p className="section-kicker">ניהול מערכת</p>
               <h2>לוג שימוש במערכת</h2>
-              <small>כל שורה מייצגת רצף שימוש נפרד במערכת.</small>
+              <small>כל שורה נוצרת רק לאחר שהמשתמש סיים רצף שימוש במערכת.</small>
             </div>
 
             {systemUsageError ? (
@@ -6895,6 +7411,9 @@ export default function Home() {
                             {row.community_names.length > 0
                               ? `מעגלים: ${row.community_names.join(", ")}`
                               : "ללא מעגלים"}
+                          </small>
+                          <small className="system-usage-session-range">
+                            {formatUsageSessionRange(row.started_at, row.ended_at)}
                           </small>
                         </td>
                         <td className="system-usage-duration">{formatUsageDuration(row.duration_seconds)}</td>
@@ -8695,6 +9214,90 @@ export default function Home() {
             </div>
           </section>
         </div>
+      )}
+
+      {editingMemberImage && isSystemAdminEmail(user.email) && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={closeMemberImageEditor}>
+          <section
+            className="modal-card member-image-editor-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="member-image-editor-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="modal-close"
+              onClick={closeMemberImageEditor}
+              aria-label="סגירה"
+              disabled={savingMemberImage}
+            >
+              ×
+            </button>
+            <div className="section-heading-compact member-image-editor-heading">
+              <p className="section-kicker">חברי המעגל</p>
+              <h2 id="member-image-editor-title">החלפת תמונה עבור {editingMemberImage.full_name}</h2>
+            </div>
+
+            <div className="member-image-editor-preview">
+              <ProfileAvatar
+                imageUrl={adminMemberImage?.previewUrl ?? editingMemberImage.avatar_url ?? editingMemberImage.google_avatar_url}
+                name={editingMemberImage.full_name}
+                size="large"
+              />
+            </div>
+
+            <input
+              ref={adminMemberImageInputRef}
+              className="hidden-file-input"
+              type="file"
+              accept="image/*,.heic,.heif"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void prepareAdminMemberImage(file);
+                event.currentTarget.value = "";
+              }}
+            />
+
+            <button
+              type="button"
+              className="secondary-button member-image-select-button"
+              onClick={() => adminMemberImageInputRef.current?.click()}
+              disabled={savingMemberImage}
+            >
+              בחירת תמונה חדשה
+            </button>
+
+            {memberImageMessage && <p className="message-box error">{memberImageMessage}</p>}
+
+            <div className="member-image-editor-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeMemberImageEditor}
+                disabled={savingMemberImage}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void saveAdminMemberImage()}
+                disabled={savingMemberImage || !adminMemberImage}
+              >
+                {savingMemberImage ? "שומרים..." : "שמירת התמונה"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {profileCropRequest && (
+        <ProfileImageCropper
+          request={profileCropRequest}
+          onCancel={closeProfileImageCropper}
+          onConfirm={acceptProfileImageCrop}
+        />
       )}
 
       {lightbox && (

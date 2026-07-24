@@ -14,6 +14,7 @@ type SharedCommunity = {
 };
 
 const SITE_ORIGIN = "https://circles-community.vercel.app";
+const DEFAULT_SHARE_IMAGE = "/circles-system-share.png";
 
 const getSharedCommunity = cache(async (token: string) => {
   const supabase = await createClient();
@@ -43,14 +44,13 @@ export async function generateMetadata({
   const description =
     community.description.trim() || `הצטרפו למעגל „${community.name}” במערכת מעגלים.`;
   const url = `${SITE_ORIGIN}/circle/${community.share_token}`;
-  const images = community.logo_url
-    ? [
-        {
-          url: community.logo_url,
-          alt: `תמונת המעגל ${community.name}`,
-        },
-      ]
-    : undefined;
+  const shareImageUrl = community.logo_url ?? DEFAULT_SHARE_IMAGE;
+  const images = [
+    {
+      url: shareImageUrl,
+      alt: community.logo_url ? `תמונת המעגל ${community.name}` : "לוגו מערכת מעגלים",
+    },
+  ];
 
   return {
     title: `${community.name} | מעגלים`,
@@ -73,10 +73,10 @@ export async function generateMetadata({
       images,
     },
     twitter: {
-      card: community.logo_url ? "summary_large_image" : "summary",
+      card: "summary_large_image",
       title: community.name,
       description,
-      images: community.logo_url ? [community.logo_url] : undefined,
+      images: [shareImageUrl],
     },
   };
 }

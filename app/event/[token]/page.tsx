@@ -1,6 +1,5 @@
 import { cache } from "react";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { EventRedirect } from "./EventRedirect";
 
@@ -22,6 +21,7 @@ type SharedEvent = {
 };
 
 const SITE_ORIGIN = "https://circles-community.vercel.app";
+const DEFAULT_SHARE_IMAGE = "/circles-system-share.png";
 
 const getSharedEvent = cache(async (token: string) => {
   const supabase = await createClient();
@@ -78,17 +78,17 @@ export async function generateMetadata({
     [dateText, event.location].filter(Boolean).join(" · ") ||
     `הצטרפו לאירוע „${event.title}” במערכת מעגלים.`;
   const url = `${SITE_ORIGIN}/event/${event.share_token}`;
-  const shareImageUrl = event.image_url ?? event.community_logo_url;
-  const images = shareImageUrl
-    ? [
-        {
-          url: shareImageUrl,
-          alt: event.image_url
-            ? `תמונת האירוע ${event.title}`
-            : `תמונת המעגל ${event.community_name}`,
-        },
-      ]
-    : undefined;
+  const shareImageUrl = event.image_url ?? event.community_logo_url ?? DEFAULT_SHARE_IMAGE;
+  const images = [
+    {
+      url: shareImageUrl,
+      alt: event.image_url
+        ? `תמונת האירוע ${event.title}`
+        : event.community_logo_url
+          ? `תמונת המעגל ${event.community_name}`
+          : "לוגו מערכת מעגלים",
+    },
+  ];
 
   const browserTitle = `${event.title} ב ${formatSharedEventShortDate(event.starts_at)}`;
   const sharedTitle = event.status === "cancelled" ? `${event.title} · מבוטל` : event.title;
@@ -117,10 +117,10 @@ export async function generateMetadata({
       images,
     },
     twitter: {
-      card: shareImageUrl ? "summary_large_image" : "summary",
+      card: "summary_large_image",
       title: sharedTitle,
       description: sharedDescription,
-      images: shareImageUrl ? [shareImageUrl] : undefined,
+      images: [shareImageUrl],
     },
   };
 }
@@ -131,9 +131,11 @@ export default async function SharedEventPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const event = await getSharedEvent(token);
 
-  if (!event) notFound();
-
-  return <EventRedirect token={event.share_token} />;
+  // Always forward the shared token to the client application.
+  // The metadata lookup above may occasionally fail because of a transient
+  // database/network error, but that must never turn a valid shared link
+  // into a permanent-looking 404 page. The main application performs the
+  // authoritative event lookup and can show the appropriate message there.
+  return <EventRedirect token={token} />;
 }
