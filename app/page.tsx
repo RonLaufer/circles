@@ -18,6 +18,9 @@ type Profile = {
   about: string;
   city: string;
   phone: string;
+  birth_day: number | null;
+  birth_month: number | null;
+  birth_year: number | null;
   avatar_url: string | null;
   google_avatar_url: string | null;
   legal_accepted_at: string | null;
@@ -26,7 +29,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.2.8";
+const APP_VERSION = "v1.1.3.0";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -295,6 +298,11 @@ type EventGalleryPhoto = {
   full_name: string;
 };
 
+type EventMediaCount = {
+  imageCount: number;
+  videoCount: number;
+};
+
 type EventConversationTopic = {
   id: string;
   event_id: string;
@@ -484,6 +492,109 @@ function ConversationComposer({
   );
 }
 
+
+const BIRTH_MONTHS = [
+  "ינואר",
+  "פברואר",
+  "מרץ",
+  "אפריל",
+  "מאי",
+  "יוני",
+  "יולי",
+  "אוגוסט",
+  "ספטמבר",
+  "אוקטובר",
+  "נובמבר",
+  "דצמבר",
+] as const;
+
+function validateBirthday(dayValue: string, monthValue: string, yearValue: string) {
+  if (!dayValue && !monthValue && !yearValue) return null;
+  if (!dayValue || !monthValue) return "כדי לשמור תאריך לידה יש לבחור יום וחודש. השנה אינה חובה.";
+
+  const day = Number(dayValue);
+  const month = Number(monthValue);
+  const year = yearValue ? Number(yearValue) : 2000;
+  const currentYear = new Date().getFullYear();
+
+  if (!Number.isInteger(day) || day < 1 || day > 31 || !Number.isInteger(month) || month < 1 || month > 12) {
+    return "תאריך הלידה אינו תקין.";
+  }
+
+  if (yearValue && (!Number.isInteger(year) || year < 1900 || year > currentYear)) {
+    return `שנת הלידה צריכה להיות בין 1900 ל־${currentYear}.`;
+  }
+
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return "תאריך הלידה אינו תקין.";
+  }
+
+  return null;
+}
+
+function BirthdayFields({
+  day,
+  month,
+  year,
+  onDayChange,
+  onMonthChange,
+  onYearChange,
+  disabled = false,
+}: {
+  day: string;
+  month: string;
+  year: string;
+  onDayChange: (value: string) => void;
+  onMonthChange: (value: string) => void;
+  onYearChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <fieldset className="birthday-fieldset">
+      <legend>תאריך לידה (לא חובה)</legend>
+      <div className="birthday-fields-grid">
+        <label>
+          <span>יום</span>
+          <select value={day} onChange={(event) => onDayChange(event.target.value)} disabled={disabled}>
+            <option value="">יום</option>
+            {Array.from({ length: 31 }, (_, index) => index + 1).map((value) => (
+              <option value={value} key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>חודש</span>
+          <select value={month} onChange={(event) => onMonthChange(event.target.value)} disabled={disabled}>
+            <option value="">חודש</option>
+            {BIRTH_MONTHS.map((monthName, index) => (
+              <option value={index + 1} key={monthName}>{monthName}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>שנה</span>
+          <input
+            type="number"
+            min="1900"
+            max={new Date().getFullYear()}
+            value={year}
+            onChange={(event) => onYearChange(event.target.value)}
+            placeholder="לא חובה"
+            inputMode="numeric"
+            disabled={disabled}
+          />
+        </label>
+      </div>
+      <small>השנה אינה חובה. התאריך ישמש לתזכורות ימי הולדת.</small>
+    </fieldset>
+  );
+}
+
 function LegalScreen({
   checked,
   onCheckedChange,
@@ -493,6 +604,19 @@ function LegalScreen({
   acceptanceRequired,
   acceptButtonLabel,
   acceptedAt,
+  profileName,
+  profileImageUrl,
+  city,
+  phone,
+  birthDay,
+  birthMonth,
+  birthYear,
+  onCityChange,
+  onPhoneChange,
+  onBirthDayChange,
+  onBirthMonthChange,
+  onBirthYearChange,
+  onProfileImageSelected,
   message,
   messageTone,
 }: {
@@ -504,9 +628,24 @@ function LegalScreen({
   acceptanceRequired: boolean;
   acceptButtonLabel: string;
   acceptedAt?: string | null;
+  profileName: string;
+  profileImageUrl: string | null;
+  city: string;
+  phone: string;
+  birthDay: string;
+  birthMonth: string;
+  birthYear: string;
+  onCityChange: (value: string) => void;
+  onPhoneChange: (value: string) => void;
+  onBirthDayChange: (value: string) => void;
+  onBirthMonthChange: (value: string) => void;
+  onBirthYearChange: (value: string) => void;
+  onProfileImageSelected: (file: File) => void;
   message: string | null;
   messageTone: "success" | "error";
 }) {
+  const legalProfileImageInputRef = useRef<HTMLInputElement | null>(null);
+
   return (
     <main className="legal-page">
       <section className="legal-card" aria-live="polite">
@@ -561,7 +700,7 @@ function LegalScreen({
             <p>
               בעת כניסה באמצעות Google מתקבלים מזהה משתמש, כתובת דוא״ל, שם ותמונת
               פרופיל, ככל ש־Google מספקת אותם. בנוסף, המשתמש יכול להוסיף מרצונו עיר,
-              מספר טלפון, תיאור אישי ותמונת פרופיל אחרת.
+              מספר טלפון, תאריך לידה, תיאור אישי ותמונת פרופיל אחרת.
             </p>
             <p>
               במהלך השימוש נשמר מידע הקשור למעגלים, חברות במעגל, אירועים, תגובות
@@ -619,6 +758,75 @@ function LegalScreen({
 
         {acceptanceRequired ? (
           <div className="legal-consent-panel">
+            <section className="legal-profile-fields" aria-labelledby="legal-profile-fields-title">
+              <div className="legal-profile-fields-heading">
+                <div>
+                  <h2 id="legal-profile-fields-title">השלמת פרטים אישיים</h2>
+                  <p>הפרטים אינם חובה וניתן לשנות אותם בכל עת באזור האישי.</p>
+                </div>
+                <ProfileAvatar imageUrl={profileImageUrl} name={profileName} />
+              </div>
+
+              <div className="legal-profile-image-actions">
+                <input
+                  ref={legalProfileImageInputRef}
+                  className="hidden-file-input"
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) onProfileImageSelected(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  onClick={() => legalProfileImageInputRef.current?.click()}
+                  disabled={saving}
+                >
+                  שינוי תמונת פרופיל
+                </button>
+              </div>
+
+              <label>
+                <span>עיר מגורים (לא חובה)</span>
+                <input
+                  type="text"
+                  value={city}
+                  onChange={(event) => onCityChange(event.target.value)}
+                  maxLength={100}
+                  autoComplete="address-level2"
+                  placeholder="לדוגמה: ראש העין"
+                  disabled={saving}
+                />
+              </label>
+
+              <label>
+                <span>טלפון (לא חובה)</span>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(event) => onPhoneChange(event.target.value)}
+                  maxLength={30}
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="לדוגמה: 050-1234567"
+                  disabled={saving}
+                />
+              </label>
+
+              <BirthdayFields
+                day={birthDay}
+                month={birthMonth}
+                year={birthYear}
+                onDayChange={onBirthDayChange}
+                onMonthChange={onBirthMonthChange}
+                onYearChange={onBirthYearChange}
+                disabled={saving}
+              />
+            </section>
+
             <label className="legal-consent-checkbox">
               <input
                 type="checkbox"
@@ -1103,6 +1311,9 @@ export default function Home() {
   const [about, setAbout] = useState("");
   const [city, setCity] = useState("");
   const [phone, setPhone] = useState("");
+  const [birthDay, setBirthDay] = useState("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthYear, setBirthYear] = useState("");
   const [profileScreenOpen, setProfileScreenOpen] = useState(false);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
@@ -1130,6 +1341,8 @@ export default function Home() {
   const [joinRequests, setJoinRequests] = useState<CommunityJoinRequest[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [communityEvents, setCommunityEvents] = useState<CommunityEvent[]>([]);
+  const [eventMediaCounts, setEventMediaCounts] = useState<Record<string, EventMediaCount>>({});
+  const [galleryScrollEventId, setGalleryScrollEventId] = useState<string | null>(null);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [eventAttendance, setEventAttendance] = useState<EventAttendance[]>([]);
@@ -1511,6 +1724,7 @@ export default function Home() {
       if (error) {
         console.error("Loading circle events failed", error);
         setCommunityEvents([]);
+        setEventMediaCounts({});
         setMessageTone("error");
         setMessage(
           error.code === "42P01"
@@ -1520,7 +1734,31 @@ export default function Home() {
               : "לא הצלחנו לטעון את אירועי המעגל.",
         );
       } else {
-        setCommunityEvents((data ?? []) as CommunityEvent[]);
+        const events = (data ?? []) as CommunityEvent[];
+        setCommunityEvents(events);
+
+        if (events.length === 0) {
+          setEventMediaCounts({});
+        } else {
+          const { data: mediaRows, error: mediaError } = await supabase
+            .from("event_gallery_photos")
+            .select("event_id,media_type")
+            .in("event_id", events.map((event) => event.id));
+
+          if (mediaError) {
+            console.error("Loading event gallery counts failed", mediaError);
+            setEventMediaCounts({});
+          } else {
+            const nextCounts: Record<string, EventMediaCount> = {};
+            for (const row of mediaRows ?? []) {
+              const current = nextCounts[row.event_id] ?? { imageCount: 0, videoCount: 0 };
+              if (row.media_type === "video") current.videoCount += 1;
+              else current.imageCount += 1;
+              nextCounts[row.event_id] = current;
+            }
+            setEventMediaCounts(nextCounts);
+          }
+        }
       }
 
       setEventsLoading(false);
@@ -1712,12 +1950,18 @@ export default function Home() {
       ? await supabase.from("profiles").select("id,full_name").in("id", userIds)
       : { data: [] };
     const names = new Map((profileRows ?? []).map((row) => [row.id, row.full_name]));
-    setGalleryPhotos(
-      (photoRows ?? []).map((photo) => ({
-        ...photo,
-        full_name: names.get(photo.user_id) || "משתמש",
-      })) as EventGalleryPhoto[],
-    );
+    const mappedGalleryPhotos = (photoRows ?? []).map((photo) => ({
+      ...photo,
+      full_name: names.get(photo.user_id) || "משתמש",
+    })) as EventGalleryPhoto[];
+    setGalleryPhotos(mappedGalleryPhotos);
+    setEventMediaCounts((current) => ({
+      ...current,
+      [eventId]: {
+        imageCount: mappedGalleryPhotos.filter((photo) => photo.media_type === "image").length,
+        videoCount: mappedGalleryPhotos.filter((photo) => photo.media_type === "video").length,
+      },
+    }));
     setGalleryLoading(false);
   }, [supabase]);
 
@@ -1992,7 +2236,7 @@ export default function Home() {
       const googleProfile = getGoogleProfile(currentUser);
       const { data, error } = await supabase
         .from("profiles")
-        .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+        .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
         .eq("id", currentUser.id)
         .maybeSingle<Profile>();
 
@@ -2002,7 +2246,7 @@ export default function Home() {
           error.code === "42P01"
             ? "יש להריץ תחילה את קובץ ה־SQL של circles3 ב־Supabase."
             : error.code === "42703"
-              ? "יש להריץ את קובץ ה־SQL של circles74 ב־Supabase."
+              ? "יש להריץ את קובץ ה־SQL של circles130 ב־Supabase."
               : "לא הצלחנו לטעון את הפרופיל. נסו לרענן את הדף.",
         );
         setProfileLoading(false);
@@ -2020,7 +2264,7 @@ export default function Home() {
             full_name: googleProfile.fullName,
             google_avatar_url: googleProfile.avatarUrl,
           })
-          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+          .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
           .single<Profile>();
 
         if (insertError) {
@@ -2042,7 +2286,7 @@ export default function Home() {
             google_avatar_url: googleProfile.avatarUrl,
           })
           .eq("id", currentUser.id)
-          .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+          .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
           .single<Profile>();
 
         loadedProfile = refreshedProfile ?? loadedProfile;
@@ -2053,6 +2297,9 @@ export default function Home() {
       setAbout(loadedProfile.about);
       setCity(loadedProfile.city);
       setPhone(loadedProfile.phone);
+      setBirthDay(loadedProfile.birth_day?.toString() ?? "");
+      setBirthMonth(loadedProfile.birth_month?.toString() ?? "");
+      setBirthYear(loadedProfile.birth_year?.toString() ?? "");
       setProfileLoading(false);
     },
     [supabase],
@@ -2399,6 +2646,7 @@ export default function Home() {
       setCommunityMembers([]);
       setJoinRequests([]);
       setCommunityEvents([]);
+      setEventMediaCounts({});
       return;
     }
 
@@ -2407,6 +2655,17 @@ export default function Home() {
       loadCommunityEvents(selected.id),
     ]);
   }, [communities, loadCommunityEvents, loadCommunityPeople, selectedCommunityId]);
+
+  useEffect(() => {
+    if (!selectedEventId || galleryScrollEventId !== selectedEventId || galleryLoading) return;
+
+    const timer = window.setTimeout(() => {
+      document.getElementById("event-gallery")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setGalleryScrollEventId(null);
+    }, 100);
+
+    return () => window.clearTimeout(timer);
+  }, [galleryLoading, galleryScrollEventId, selectedEventId]);
 
   useEffect(() => {
     if (!selectedEventId) {
@@ -3263,6 +3522,13 @@ export default function Home() {
       return;
     }
 
+    const birthdayError = validateBirthday(birthDay, birthMonth, birthYear);
+    if (birthdayError) {
+      setMessageTone("error");
+      setMessage(birthdayError);
+      return;
+    }
+
     setSaving(true);
     setMessage(null);
 
@@ -3290,10 +3556,13 @@ export default function Home() {
         about: about.trim(),
         city: city.trim(),
         phone: phone.trim(),
+        birth_day: birthDay ? Number(birthDay) : null,
+        birth_month: birthMonth ? Number(birthMonth) : null,
+        birth_year: birthYear ? Number(birthYear) : null,
         avatar_url: avatarUrl,
       })
       .eq("id", user.id)
-      .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+      .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
       .single<Profile>();
 
     if (error) {
@@ -3305,6 +3574,9 @@ export default function Home() {
       setAbout(data.about);
       setCity(data.city);
       setPhone(data.phone);
+      setBirthDay(data.birth_day?.toString() ?? "");
+      setBirthMonth(data.birth_month?.toString() ?? "");
+      setBirthYear(data.birth_year?.toString() ?? "");
       setProfileImage((current) => {
         clearSelectedImage(current);
         return null;
@@ -3701,6 +3973,11 @@ export default function Home() {
     setBringMessage(null);
     setGalleryVideoNotice(null);
     setMessage(null);
+  }
+
+  function openEventGallery(event: CommunityEvent) {
+    setGalleryScrollEventId(event.id);
+    openEventDetails(event);
   }
 
   function closeEventDetails() {
@@ -4412,7 +4689,7 @@ export default function Home() {
     const markerIndex = photo.image_url.indexOf(publicPathMarker);
     if (markerIndex >= 0) {
       const objectPath = decodeURIComponent(
-        photo.image_url.slice(markerIndex + publicPathMarker.length),
+        photo.image_url.slice(markerIndex + publicPathMarker.length).split("?")[0],
       );
       const { error: storageError } = await supabase.storage
         .from("event-gallery")
@@ -4819,19 +5096,50 @@ export default function Home() {
   }
 
   async function acceptLegalConsent() {
-    if (!user || !legalConsentChecked) return;
+    if (!user || !profile || !legalConsentChecked) return;
+
+    const birthdayError = validateBirthday(birthDay, birthMonth, birthYear);
+    if (birthdayError) {
+      setMessageTone("error");
+      setMessage(birthdayError);
+      return;
+    }
 
     setLegalConsentSaving(true);
     setMessage(null);
     const acceptedAt = new Date().toISOString();
+    let avatarUrl = profile.avatar_url;
+
+    if (profileImage) {
+      try {
+        avatarUrl = await uploadPublicImage(
+          "profile-images",
+          `${user.id}/avatar.jpg`,
+          profileImage.blob,
+        );
+      } catch (error) {
+        console.error("Uploading profile image during legal acceptance failed", error);
+        setMessageTone("error");
+        setMessage("העלאת תמונת הפרופיל לא הצליחה. נסו שוב.");
+        setLegalConsentSaving(false);
+        return;
+      }
+    }
+
     const { data, error } = await supabase
       .from("profiles")
       .update({
+        city: city.trim(),
+        phone: phone.trim(),
+        birth_day: birthDay ? Number(birthDay) : null,
+        birth_month: birthMonth ? Number(birthMonth) : null,
+        birth_year: birthYear ? Number(birthYear) : null,
+        avatar_url: avatarUrl,
         legal_accepted_at: acceptedAt,
         legal_version: LEGAL_VERSION,
       })
       .eq("id", user.id)
-      .select("id,email,full_name,about,city,phone,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+      .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
       .single<Profile>();
 
     if (error) {
@@ -4839,15 +5147,24 @@ export default function Home() {
       setMessageTone("error");
       setMessage(
         error.code === "42703"
-          ? "יש להריץ את קובץ ה־SQL של circles74 ב־Supabase."
+          ? "יש להריץ את קובץ ה־SQL של circles130 ב־Supabase."
           : "לא הצלחנו לשמור את האישור. נסו שוב.",
       );
     } else {
       setProfile(data);
+      setCity(data.city);
+      setPhone(data.phone);
+      setBirthDay(data.birth_day?.toString() ?? "");
+      setBirthMonth(data.birth_month?.toString() ?? "");
+      setBirthYear(data.birth_year?.toString() ?? "");
+      setProfileImage((current) => {
+        clearSelectedImage(current);
+        return null;
+      });
       setLegalConsentChecked(false);
       setLegalScreenOpen(false);
       setMessageTone("success");
-      setMessage("האישור נשמר.");
+      setMessage("האישור והפרטים נשמרו.");
     }
 
     setLegalConsentSaving(false);
@@ -4949,6 +5266,22 @@ export default function Home() {
         acceptanceRequired={acceptanceRequired}
         acceptButtonLabel={user ? "אישור והמשך" : "אישור וחזרה לכניסה"}
         acceptedAt={profile?.legal_accepted_at}
+        profileName={profile?.full_name ?? (user ? getGoogleProfile(user).fullName : "משתמש")}
+        profileImageUrl={
+          profileImage?.previewUrl ??
+          getProfileImageUrl(profile?.avatar_url ?? null, profile?.google_avatar_url ?? null)
+        }
+        city={city}
+        phone={phone}
+        birthDay={birthDay}
+        birthMonth={birthMonth}
+        birthYear={birthYear}
+        onCityChange={setCity}
+        onPhoneChange={setPhone}
+        onBirthDayChange={setBirthDay}
+        onBirthMonthChange={setBirthMonth}
+        onBirthYearChange={setBirthYear}
+        onProfileImageSelected={(file) => void prepareImage(file, "profile")}
         message={message}
         messageTone={messageTone}
       />
@@ -5287,6 +5620,9 @@ export default function Home() {
         about !== profile.about ||
         city !== profile.city ||
         phone !== profile.phone ||
+        birthDay !== (profile.birth_day?.toString() ?? "") ||
+        birthMonth !== (profile.birth_month?.toString() ?? "") ||
+        birthYear !== (profile.birth_year?.toString() ?? "") ||
         profileImage),
   );
   const communityFormIsDirty = Boolean(
@@ -5768,6 +6104,18 @@ export default function Home() {
                         {event.participant_limit !== null && (
                           <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
                         )}
+                        {((eventMediaCounts[event.id]?.imageCount ?? 0) + (eventMediaCounts[event.id]?.videoCount ?? 0) > 0) && (
+                          <button
+                            type="button"
+                            className="secondary-button compact-button event-card-gallery-button"
+                            onClick={(clickEvent) => {
+                              clickEvent.stopPropagation();
+                              openEventGallery(event);
+                            }}
+                          >
+                            כניסה לגלריה
+                          </button>
+                        )}
                       </div>
                     </article>
                   ))}
@@ -5946,6 +6294,18 @@ export default function Home() {
                         {event.location && <span className="event-location">{event.location}</span>}
                         {event.participant_limit !== null && (
                           <span className="event-capacity-label">עד {event.participant_limit} משתתפים</span>
+                        )}
+                        {((eventMediaCounts[event.id]?.imageCount ?? 0) + (eventMediaCounts[event.id]?.videoCount ?? 0) > 0) && (
+                          <button
+                            type="button"
+                            className="secondary-button compact-button event-card-gallery-button"
+                            onClick={(clickEvent) => {
+                              clickEvent.stopPropagation();
+                              openEventGallery(event);
+                            }}
+                          >
+                            כניסה לגלריה
+                          </button>
                         )}
                       </div>
                     </article>
@@ -6180,6 +6540,15 @@ export default function Home() {
                     </small>
                   </label>
 
+                  <BirthdayFields
+                    day={birthDay}
+                    month={birthMonth}
+                    year={birthYear}
+                    onDayChange={setBirthDay}
+                    onMonthChange={setBirthMonth}
+                    onYearChange={setBirthYear}
+                  />
+
                   <label>
                     <span>ספרו על עצמכם</span>
                     <textarea
@@ -6206,15 +6575,14 @@ export default function Home() {
               ) : null}
 
               {isSystemAdminEmail(user.email) && (
-                <section className="system-media-settings-section">
+                <section className="event-media-settings-panel profile-media-settings-panel">
                   <div className="section-heading-compact">
-                    <p className="section-kicker">מנהל המערכת</p>
-                    <h2>ברירות מחדל למדיה באירועים חדשים</h2>
+                    <h3>ברירות מחדל למדיה באירועים חדשים</h3>
                     <small>הערכים יועתקו לכל אירוע חדש. מנהל האירוע יוכל לשנות אותם בעריכת האירוע.</small>
                   </div>
-                  <div className="system-media-settings-grid">
+                  <div className="event-media-settings-grid">
                     <label>
-                      <span>מספר תמונות</span>
+                      <span>מספר תמונות שניתן להעלות</span>
                       <input
                         type="number"
                         min={MEDIA_LIMITS.imageCountMin}
@@ -6224,7 +6592,7 @@ export default function Home() {
                       />
                     </label>
                     <label>
-                      <span>גודל תמונה מכווצת במגה</span>
+                      <span>גודל תמונה מכווצת מקסימלי במגה</span>
                       <input
                         type="number"
                         min={MEDIA_LIMITS.imageMaxMbMin}
@@ -6235,7 +6603,7 @@ export default function Home() {
                       />
                     </label>
                     <label>
-                      <span>מספר סרטונים</span>
+                      <span>מספר סרטונים שניתן להעלות</span>
                       <input
                         type="number"
                         min={MEDIA_LIMITS.videoCountMin}
@@ -6245,7 +6613,7 @@ export default function Home() {
                       />
                     </label>
                     <label>
-                      <span>גודל סרטון מכווץ במגה</span>
+                      <span>גודל סרטון מכווץ מקסימלי במגה</span>
                       <input
                         type="number"
                         min={MEDIA_LIMITS.videoMaxMbMin}
@@ -7505,11 +7873,11 @@ export default function Home() {
               )}
             </section>
 
-            <section className="event-gallery-section">
+            <section className="event-gallery-section" id="event-gallery">
               <div className="section-heading-compact gallery-heading">
                 <div>
                   <h2>גלריית האירוע</h2>
-                  <small>{galleryImageCount}/{galleryImageLimit} תמונות עד {galleryImageMaxMb}MB · {galleryVideoCount}/{galleryVideoLimit} סרטונים עד {galleryVideoMaxMb}MB</small>
+                  <small>{galleryImageCount}/{galleryImageLimit} תמונות · {galleryVideoCount}/{galleryVideoLimit} סרטונים</small>
                 </div>
                 {galleryCanUpload && (
                   <div className="gallery-upload-actions">
@@ -7595,8 +7963,11 @@ export default function Home() {
                         </button>
                       )}
                       <div className="gallery-photo-meta">
-                        <span>{photo.full_name}</span>
-                        {canDeleteAnyEventAttendance && (
+                        <div className="gallery-photo-credit">
+                          <span>הועלה על ידי {photo.full_name}</span>
+                          <time dateTime={photo.created_at}>{formatShortDateTime(photo.created_at)}</time>
+                        </div>
+                        {(photo.user_id === user.id || canManageEvents) && (
                           <button
                             type="button"
                             className="member-remove-button"
@@ -7613,7 +7984,7 @@ export default function Home() {
             </section>
 
             {canManageEvents && (
-              <div className="email-page-footer-actions" aria-label="שליחת הודעה על האירוע">
+              <div className="email-page-footer-actions event-whatsapp-footer-actions" aria-label="שליחת הודעה על האירוע">
                 <button
                   type="button"
                   className="secondary-button email-page-trigger whatsapp-page-trigger"
