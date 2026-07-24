@@ -30,7 +30,7 @@ type Profile = {
 
 type CommunityRole = "owner" | "admin" | "member";
 
-const APP_VERSION = "v1.1.4.3";
+const APP_VERSION = "v1.1.4.6";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -1012,6 +1012,50 @@ function WhatsAppIconLink({ phone, label }: { phone: string; label: string }) {
   );
 }
 
+type RideRequestFormProps = {
+  initialOrigin: string;
+  busy: boolean;
+  hasExistingRequest: boolean;
+  onSave: (origin: string) => void;
+};
+
+function RideRequestForm({
+  initialOrigin,
+  busy,
+  hasExistingRequest,
+  onSave,
+}: RideRequestFormProps) {
+  const [origin, setOrigin] = useState(initialOrigin);
+
+  useEffect(() => {
+    setOrigin(initialOrigin);
+  }, [initialOrigin]);
+
+  return (
+    <div className="ride-request-form">
+      <label>
+        <span>אני רוצה טרמפ מאזור</span>
+        <input
+          type="text"
+          value={origin}
+          onChange={(event) => setOrigin(event.target.value)}
+          maxLength={160}
+          placeholder="לדוגמה: ראש העין או צומת מורשה"
+          autoComplete="off"
+        />
+      </label>
+      <button
+        type="button"
+        className="primary-button compact-button"
+        onClick={() => onSave(origin)}
+        disabled={busy || origin.trim().length < 2}
+      >
+        {busy ? "שומרים..." : hasExistingRequest ? "עדכון הבקשה" : "הוספה לטבלה"}
+      </button>
+    </div>
+  );
+}
+
 type RideOfferControlsProps = {
   enabled: boolean;
   initialNote: string;
@@ -1859,7 +1903,6 @@ export default function Home() {
   const [eventRideRequests, setEventRideRequests] = useState<EventRideRequest[]>([]);
   const [eventRideOffers, setEventRideOffers] = useState<EventRideOffer[]>([]);
   const [rideLoading, setRideLoading] = useState(false);
-  const [rideOrigin, setRideOrigin] = useState("");
   const [rideOfferDrafts, setRideOfferDrafts] = useState<Record<string, string>>({});
   const [rideOfferEnabled, setRideOfferEnabled] = useState<Record<string, boolean>>({});
   const [rideBusyKey, setRideBusyKey] = useState<string | null>(null);
@@ -2564,7 +2607,6 @@ export default function Home() {
 
       setEventRideRequests(mappedRequests);
       setEventRideOffers(mappedOffers);
-      setRideOrigin(mappedRequests.find((request) => request.user_id === user?.id)?.origin ?? "");
       setRideOfferDrafts(
         Object.fromEntries(
           mappedOffers
@@ -3406,7 +3448,6 @@ export default function Home() {
       setBringMessage(null);
       setEventRideRequests([]);
       setEventRideOffers([]);
-      setRideOrigin("");
       setRideOfferDrafts({});
       setRideOfferEnabled({});
       setRideMessage(null);
@@ -6328,9 +6369,9 @@ export default function Home() {
   const communityFormImageUrl = communityImage?.previewUrl ?? editingCommunity?.logo_url ?? null;
   const communityFormVideoUrl = communityVideo?.previewUrl ?? editingCommunity?.video_url ?? null;
   const editingEvent = communityEvents.find((event) => event.id === editingEventId) ?? null;
-  async function saveRideRequest() {
+  async function saveRideRequest(originValue: string) {
     if (!user || !selectedEventId || rideBusyKey) return;
-    const origin = rideOrigin.trim();
+    const origin = originValue.trim();
     if (origin.length < 2) {
       setRideMessageTone("error");
       setRideMessage("יש לכתוב מאיפה נדרש הטרמפ.");
@@ -6383,7 +6424,6 @@ export default function Home() {
       return;
     }
 
-    setRideOrigin("");
     if (selectedEventId) await loadEventRides(selectedEventId);
     setRideMessageTone("success");
     setRideMessage("בקשת הטרמפ נמחקה.");
@@ -7172,9 +7212,9 @@ export default function Home() {
                           className="image-zoom-button event-card-image-button"
                           onClick={(clickEvent) => {
                             clickEvent.stopPropagation();
-                            openImage(event.image_url!, `תמונת האירוע ${event.title}`);
+                            openEventDetails(event);
                           }}
-                          aria-label={`הגדלת תמונת האירוע ${event.title}`}
+                          aria-label={`פתיחת האירוע ${event.title}`}
                         >
                           <img
                             className="event-card-image"
@@ -7379,9 +7419,9 @@ export default function Home() {
                           className="image-zoom-button event-card-image-button"
                           onClick={(clickEvent) => {
                             clickEvent.stopPropagation();
-                            openImage(event.image_url!, `תמונת האירוע ${event.title}`);
+                            openEventDetails(event);
                           }}
-                          aria-label={`הגדלת תמונת האירוע ${event.title}`}
+                          aria-label={`פתיחת האירוע ${event.title}`}
                         >
                           <img
                             className="event-card-image"
@@ -7425,7 +7465,7 @@ export default function Home() {
                   className="secondary-button email-page-trigger whatsapp-page-trigger"
                   onClick={openCommunityWhatsAppComposer}
                 >
-                  שיתוף המעגל ב־WhatsApp
+                  שליחת הודעה בקשר למעגל
                 </button>
               </div>
             )}
@@ -8843,30 +8883,14 @@ export default function Home() {
               </div>
 
               {!eventLockedForCurrentUser && (
-                <div className="ride-request-form">
-                  <label>
-                    <span>אני רוצה טרמפ מאזור</span>
-                    <input
-                      type="text"
-                      value={rideOrigin}
-                      onChange={(event) => setRideOrigin(event.target.value)}
-                      maxLength={160}
-                      placeholder="לדוגמה: ראש העין או צומת מורשה"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="primary-button compact-button"
-                    onClick={() => void saveRideRequest()}
-                    disabled={rideBusyKey === "request" || rideOrigin.trim().length < 2}
-                  >
-                    {rideBusyKey === "request"
-                      ? "שומרים..."
-                      : eventRideRequests.some((request) => request.user_id === user.id)
-                        ? "עדכון הבקשה"
-                        : "הוספה לטבלה"}
-                  </button>
-                </div>
+                <RideRequestForm
+                  initialOrigin={
+                    eventRideRequests.find((request) => request.user_id === user.id)?.origin ?? ""
+                  }
+                  busy={rideBusyKey === "request"}
+                  hasExistingRequest={eventRideRequests.some((request) => request.user_id === user.id)}
+                  onSave={(origin) => void saveRideRequest(origin)}
+                />
               )}
 
               {rideLoading ? (
@@ -8879,7 +8903,7 @@ export default function Home() {
               ) : (
                 <div className="ride-table" role="table" aria-label="בקשות והצעות לטרמפים">
                   <div className="ride-table-header" role="row">
-                    <span role="columnheader" aria-label="מבקש/ת ומציעים" />
+                    <span role="columnheader">מי מבקש?</span>
                     <span role="columnheader">מאיפה</span>
                   </div>
 
@@ -9258,7 +9282,7 @@ export default function Home() {
                   className="secondary-button email-page-trigger whatsapp-page-trigger"
                   onClick={openEventWhatsAppComposer}
                 >
-                  שיתוף האירוע ב־WhatsApp
+                  שליחת הודעה בקשר לאירוע
                 </button>
               </div>
             )}
@@ -9652,7 +9676,7 @@ export default function Home() {
             <div className="email-composer-heading whatsapp-composer-heading">
               <div>
                 <span className="email-composer-context whatsapp-composer-context">
-                  {whatsAppComposer.type === "event" ? "שיתוף האירוע ב־WhatsApp" : "שיתוף המעגל ב־WhatsApp"}
+                  {whatsAppComposer.type === "event" ? "שליחת הודעה בקשר לאירוע" : "שליחת הודעה בקשר למעגל"}
                 </span>
                 <h2 id="whatsapp-composer-title">{whatsAppComposer.title}</h2>
                 <p>
@@ -9715,7 +9739,7 @@ export default function Home() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                {whatsAppComposer.type === "event" ? "שיתוף האירוע" : "שיתוף המעגל"}
+                שליחה בוואטסאפ
               </a>
             </div>
           </section>

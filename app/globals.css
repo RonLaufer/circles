@@ -6912,3 +6912,19 @@ body.editor-screen-open {
 .event-detail-location strong {
   color: #111;
 }
+
+/* circles144: center share links on mobile like the adjacent edit buttons */
+@media (max-width: 680px) {
+  .community-toolbar-actions > a.compact-button,
+  .event-detail-actions > a.compact-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .event-detail-actions > .compact-button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
