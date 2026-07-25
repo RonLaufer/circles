@@ -30,7 +30,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.4.8";
+const APP_VERSION = "v1.1.6.4";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -227,6 +227,7 @@ type CommunityEvent = {
 };
 
 type AttendanceStatus = "going" | "maybe" | "not_going";
+type ActualAttendanceStatus = "arrived" | "not_arrived";
 
 type WhatsAppComposerContext = {
   type: "community" | "event";
@@ -240,6 +241,9 @@ type EventAttendance = {
   event_id: string;
   user_id: string;
   status: AttendanceStatus;
+  actual_status: ActualAttendanceStatus | null;
+  actual_status_at: string | null;
+  actual_status_by: string | null;
   created_at: string;
   updated_at: string;
   full_name: string;
@@ -329,6 +333,9 @@ type EventGalleryPhoto = {
   user_id: string;
   image_url: string;
   media_type: "image" | "video";
+  is_pinned: boolean;
+  pinned_at: string | null;
+  pinned_by: string | null;
   created_at: string;
   full_name: string;
 };
@@ -1642,6 +1649,24 @@ function attendanceStatusLabel(status: AttendanceStatus) {
   return "לא מגיע/ה";
 }
 
+function effectiveAttendanceStatus(
+  attendance: EventAttendance,
+  includeActualStatus: boolean,
+): AttendanceStatus {
+  if (includeActualStatus && attendance.actual_status === "arrived") return "going";
+  if (includeActualStatus && attendance.actual_status === "not_arrived") return "not_going";
+  return attendance.status;
+}
+
+function displayedAttendanceStatusLabel(
+  attendance: EventAttendance,
+  includeActualStatus: boolean,
+) {
+  if (includeActualStatus && attendance.actual_status === "arrived") return "הגיע/ה";
+  if (includeActualStatus && attendance.actual_status === "not_arrived") return "לא הגיע/ה";
+  return attendanceStatusLabel(attendance.status);
+}
+
 function sortAttendanceByRoleAndName(rows: EventAttendance[]) {
   return [...rows].sort((first, second) => {
     const roleDifference =
@@ -1892,6 +1917,7 @@ export default function Home() {
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<AttendanceStatus | null>(null);
   const [savingAttendance, setSavingAttendance] = useState(false);
+  const [actualAttendanceBusyUserId, setActualAttendanceBusyUserId] = useState<string | null>(null);
   const [attendanceMessage, setAttendanceMessage] = useState<string | null>(null);
   const [attendanceMessageTone, setAttendanceMessageTone] = useState<"error" | "success">("error");
   const [eventBringNeeds, setEventBringNeeds] = useState<EventBringNeed[]>([]);
@@ -1944,6 +1970,7 @@ export default function Home() {
   const [galleryPhotos, setGalleryPhotos] = useState<EventGalleryPhoto[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
+  const [galleryPinBusyId, setGalleryPinBusyId] = useState<string | null>(null);
   const [galleryVideoNotice, setGalleryVideoNotice] = useState<VideoProcessNotice | null>(null);
   const [mediaDefaults, setMediaDefaults] = useState<MediaDefaults>(FALLBACK_MEDIA_DEFAULTS);
   const [mediaDefaultsSaving, setMediaDefaultsSaving] = useState(false);
@@ -2388,7 +2415,7 @@ export default function Home() {
 
       const { data: attendanceRows, error: attendanceError } = await supabase
         .from("event_attendance")
-        .select("event_id,user_id,status,created_at,updated_at")
+        .select("event_id,user_id,status,actual_status,actual_status_at,actual_status_by,created_at,updated_at")
         .eq("event_id", eventId)
         .order("updated_at", { ascending: true });
 
@@ -2429,6 +2456,9 @@ export default function Home() {
         return {
           ...attendance,
           status: attendance.status as AttendanceStatus,
+          actual_status: (attendance.actual_status as ActualAttendanceStatus | null) ?? null,
+          actual_status_at: attendance.actual_status_at ?? null,
+          actual_status_by: attendance.actual_status_by ?? null,
           full_name: attendeeProfile?.full_name || "משתמש",
           email: attendeeProfile?.email ?? null,
           city: attendeeProfile?.city ?? "",
@@ -2652,8 +2682,10 @@ export default function Home() {
     setGalleryLoading(true);
     const { data: photoRows, error } = await supabase
       .from("event_gallery_photos")
-      .select("id,event_id,user_id,image_url,media_type,created_at")
+      .select("id,event_id,user_id,image_url,media_type,is_pinned,pinned_at,pinned_by,created_at")
       .eq("event_id", eventId)
+      .order("is_pinned", { ascending: false })
+      .order("pinned_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -5321,6 +5353,39 @@ export default function Home() {
     setAttendanceMessage(null);
   }
 
+  async function saveActualAttendance(
+    attendance: EventAttendance,
+    actualStatus: ActualAttendanceStatus,
+  ) {
+    if (!selectedEventId || !selectedEvent || !canManageEvents || actualAttendanceBusyUserId) return;
+    if (new Date(selectedEvent.starts_at).getTime() > Date.now()) return;
+
+    setActualAttendanceBusyUserId(attendance.user_id);
+    setAttendanceMessage(null);
+
+    const { error } = await supabase.rpc("set_event_actual_attendance", {
+      target_event_id: selectedEventId,
+      target_user_id: attendance.user_id,
+      target_actual_status: actualStatus,
+    });
+
+    if (error) {
+      console.error("Saving actual event attendance failed", error);
+      setAttendanceMessageTone("error");
+      setAttendanceMessage(
+        error.message.includes("actual_attendance_before_event_start")
+          ? "ניתן לסמן הגעה בפועל רק החל ממועד תחילת האירוע."
+          : `שמירת ההגעה בפועל לא הצליחה. ${formatSupabaseError(error)}`,
+      );
+      setActualAttendanceBusyUserId(null);
+      return;
+    }
+
+    await loadEventAttendance(selectedEventId);
+    setActualAttendanceBusyUserId(null);
+    setAttendanceMessage(null);
+  }
+
   async function deleteEventAttendance(attendance: EventAttendance) {
     if (!selectedEventId || !user) return false;
 
@@ -5635,6 +5700,27 @@ export default function Home() {
         tone: "success",
       });
     }
+  }
+
+  async function toggleGalleryPin(photo: EventGalleryPhoto) {
+    if (!canManageEvents || galleryPinBusyId) return;
+
+    setGalleryPinBusyId(photo.id);
+    const { error } = await supabase.rpc("set_event_gallery_pin", {
+      target_photo_id: photo.id,
+      target_is_pinned: !photo.is_pinned,
+    });
+
+    if (error) {
+      console.error("Updating gallery pin failed", error);
+      setMessageTone("error");
+      setMessage(`עדכון ההצמדה נכשל. ${formatSupabaseError(error)}`);
+      setGalleryPinBusyId(null);
+      return;
+    }
+
+    if (selectedEventId) await loadEventGallery(selectedEventId);
+    setGalleryPinBusyId(null);
   }
 
   async function deleteGalleryPhoto(photo: EventGalleryPhoto) {
@@ -6650,17 +6736,34 @@ export default function Home() {
     : null;
   const eventFormImageUrl =
     eventImage?.previewUrl ?? editingEvent?.image_url ?? cloneSourceEvent?.image_url ?? null;
+  const selectedEventHasStarted = Boolean(
+    selectedEvent && new Date(selectedEvent.starts_at).getTime() <= Date.now(),
+  );
   const ownEventAttendance = eventAttendance.find((attendance) => attendance.user_id === user.id) ?? null;
   const goingAttendance = sortAttendanceByRoleAndName(
-    eventAttendance.filter((attendance) => attendance.status === "going"),
+    eventAttendance.filter(
+      (attendance) => effectiveAttendanceStatus(attendance, selectedEventHasStarted) === "going",
+    ),
   );
   const maybeAttendance = sortAttendanceByRoleAndName(
-    eventAttendance.filter((attendance) => attendance.status === "maybe"),
+    eventAttendance.filter(
+      (attendance) => effectiveAttendanceStatus(attendance, selectedEventHasStarted) === "maybe",
+    ),
   );
   const notGoingAttendance = sortAttendanceByRoleAndName(
-    eventAttendance.filter((attendance) => attendance.status === "not_going"),
+    eventAttendance.filter(
+      (attendance) => effectiveAttendanceStatus(attendance, selectedEventHasStarted) === "not_going",
+    ),
   );
   const totalGoingPeople = goingAttendance.length;
+  const totalRegisteredPeople = eventAttendance.filter(
+    (attendance) =>
+      attendance.status === "going" ||
+      (selectedEventHasStarted && attendance.actual_status === "arrived"),
+  ).length;
+  const actualArrivedCount = selectedEventHasStarted
+    ? eventAttendance.filter((attendance) => attendance.actual_status === "arrived").length
+    : 0;
   const freeBringContributions = eventBringContributions.filter(
     (contribution) => contribution.need_id === null,
   );
@@ -6723,9 +6826,33 @@ export default function Home() {
   const hasVisibleAttendance = visibleAttendanceGroups.some(([, rows]) => rows.length > 0);
   const canDeleteAnyEventAttendance = Boolean(selectedEvent && canManageEvents);
   const selectedEventIsCancelled = selectedEvent?.status === "cancelled";
-  const selectedEventIsPast = Boolean(
-    selectedEvent && new Date(selectedEvent.starts_at).getTime() <= Date.now(),
+  const selectedEventIsPast = selectedEventHasStarted;
+  const selectedEventHasEnded = Boolean(
+    selectedEvent &&
+      new Date(selectedEvent.ends_at ?? selectedEvent.starts_at).getTime() < Date.now(),
   );
+  const selectedEventAttendanceSelectionExpired = Boolean(
+    selectedEvent && (() => {
+      const eventDate = new Date(selectedEvent.starts_at);
+      const currentDate = new Date();
+
+      if (Number.isNaN(eventDate.getTime())) return false;
+
+      const eventDay = new Date(
+        eventDate.getFullYear(),
+        eventDate.getMonth(),
+        eventDate.getDate(),
+      ).getTime();
+      const currentDay = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        currentDate.getDate(),
+      ).getTime();
+
+      return currentDay > eventDay;
+    })(),
+  );
+  const canMarkActualAttendance = Boolean(canManageEvents && selectedEventIsPast);
   const eventLockedForCurrentUser = Boolean(
     selectedEvent && !canDeleteAnyEventAttendance &&
       (selectedEventIsCancelled || selectedEventIsPast),
@@ -8645,28 +8772,62 @@ export default function Home() {
               <div className="section-heading-compact">
                 <h2>סיכום השתתפות</h2>
               </div>
-              <div className="attendance-summary-grid">
-                <div className="attendance-summary-card attendance-summary-total">
-                  <strong>{totalGoingPeople}</strong>
-                  <span>
-                    {selectedEvent.participant_limit !== null
-                      ? `סה"כ מגיעים מתוך ${selectedEvent.participant_limit}`
-                      : 'סה"כ מגיעים'}
-                  </span>
-                </div>
-                <div className="attendance-summary-card">
-                  <strong>{maybeAttendance.length}</strong>
-                  <span>אולי</span>
-                </div>
+              <div
+                className={`attendance-summary-grid${
+                  selectedEventHasEnded
+                    ? actualArrivedCount > 0
+                      ? " is-completed"
+                      : " is-completed is-single"
+                    : selectedEventIsPast
+                      ? " has-actual-attendance"
+                      : ""
+                }`}
+              >
+                {selectedEventHasEnded ? (
+                  <>
+                    <div className="attendance-summary-card attendance-summary-total">
+                      <strong>{totalRegisteredPeople}</strong>
+                      <span>סה"כ נרשמו</span>
+                    </div>
+                    {actualArrivedCount > 0 && (
+                      <div className="attendance-summary-card attendance-summary-arrived">
+                        <strong>{actualArrivedCount}</strong>
+                        <span>סה"כ הגיעו</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="attendance-summary-card attendance-summary-total">
+                      <strong>{totalGoingPeople}</strong>
+                      <span>
+                        {selectedEvent.participant_limit !== null
+                          ? `סה"כ מגיעים מתוך ${selectedEvent.participant_limit}`
+                          : 'סה"כ מגיעים'}
+                      </span>
+                    </div>
+                    <div className="attendance-summary-card">
+                      <strong>{maybeAttendance.length}</strong>
+                      <span>אולי</span>
+                    </div>
+                    {selectedEventIsPast && (
+                      <div className="attendance-summary-card attendance-summary-arrived">
+                        <strong>{actualArrivedCount}</strong>
+                        <span>סה"כ הגיעו</span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </section>
 
-            <section className="my-attendance-section">
-              <div className="section-heading-compact">
-                <h2>ההשתתפות שלי</h2>
-              </div>
+            {!selectedEventAttendanceSelectionExpired && (
+              <section className="my-attendance-section">
+                <div className="section-heading-compact">
+                  <h2>ההשתתפות שלי</h2>
+                </div>
 
-              <div className="attendance-status-buttons" role="group" aria-label="בחירת מצב השתתפות">
+                <div className="attendance-status-buttons" role="group" aria-label="בחירת מצב השתתפות">
                 <button
                   type="button"
                   className={`attendance-status-button${attendanceStatus === "going" ? " is-selected" : ""}`}
@@ -8699,24 +8860,25 @@ export default function Home() {
                 <p className="event-locked-message">האירוע סגור לשינויים.</p>
               )}
 
-              <div className="attendance-form-actions">
-                {ownEventAttendance && (!eventLockedForCurrentUser || canDeleteAnyEventAttendance) && (
-                  <button
-                    type="button"
-                    className="member-remove-button attendance-delete-button"
-                    onClick={() =>
-                      setPendingMemberAction({ type: "attendance", attendance: ownEventAttendance })
-                    }
-                  >
-                    מחיקת ההשתתפות
-                  </button>
-                )}
-              </div>
+                <div className="attendance-form-actions">
+                  {ownEventAttendance && (!eventLockedForCurrentUser || canDeleteAnyEventAttendance) && (
+                    <button
+                      type="button"
+                      className="member-remove-button attendance-delete-button"
+                      onClick={() =>
+                        setPendingMemberAction({ type: "attendance", attendance: ownEventAttendance })
+                      }
+                    >
+                      מחיקת ההשתתפות
+                    </button>
+                  )}
+                </div>
 
-              {attendanceMessage && (
-                <p className={`message-box ${attendanceMessageTone}`}>{attendanceMessage}</p>
-              )}
-            </section>
+                {attendanceMessage && (
+                  <p className={`message-box ${attendanceMessageTone}`}>{attendanceMessage}</p>
+                )}
+              </section>
+            )}
 
             {ownEventAttendance?.status === "going" && (
               <section className="event-bring-section">
@@ -8902,7 +9064,8 @@ export default function Home() {
               </section>
             )}
 
-            <section className="event-rides-section" aria-labelledby="event-rides-title">
+            {!selectedEventAttendanceSelectionExpired && (
+              <section className="event-rides-section" aria-labelledby="event-rides-title">
               <div className="section-heading-compact">
                 <div>
                   <h2 id="event-rides-title">טרמפים לאירוע</h2>
@@ -8997,8 +9160,9 @@ export default function Home() {
                 </div>
               )}
 
-              {rideMessage && <p className={`message-box ${rideMessageTone}`}>{rideMessage}</p>}
-            </section>
+                {rideMessage && <p className={`message-box ${rideMessageTone}`}>{rideMessage}</p>}
+              </section>
+            )}
 
             <section className="event-conversations-section" aria-labelledby="event-conversations-title">
               <div className="section-heading-compact">
@@ -9169,9 +9333,31 @@ export default function Home() {
                                 )}
                                 {attendance.city && <span className="attendance-city">{attendance.city}</span>}
                                 {attendance.phone && <PhoneLink phone={attendance.phone} />}
-                                <span>{attendanceStatusLabel(attendance.status)}</span>
+                                {!(selectedEventHasStarted && attendance.actual_status) && (
+                                  <span>{displayedAttendanceStatusLabel(attendance, selectedEventHasStarted)}</span>
+                                )}
                                 <span className="attendance-registered-at">נרשם/ה: {formatShortDateTime(attendance.created_at)}</span>
                               </div>
+                              {canMarkActualAttendance && (
+                                <div className="actual-attendance-actions" aria-label={`סימון הגעה בפועל עבור ${attendance.full_name}`}>
+                                  <button
+                                    type="button"
+                                    className={`actual-attendance-button arrived${attendance.actual_status === "arrived" ? " is-selected" : ""}`}
+                                    disabled={actualAttendanceBusyUserId !== null}
+                                    onClick={() => void saveActualAttendance(attendance, "arrived")}
+                                  >
+                                    הגיע/ה
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`actual-attendance-button not-arrived${attendance.actual_status === "not_arrived" ? " is-selected" : ""}`}
+                                    disabled={actualAttendanceBusyUserId !== null}
+                                    onClick={() => void saveActualAttendance(attendance, "not_arrived")}
+                                  >
+                                    לא הגיע/ה
+                                  </button>
+                                </div>
+                              )}
                               {canDeleteAnyEventAttendance && attendance.user_id !== user.id && (
                                 <button
                                   type="button"
@@ -9265,7 +9451,8 @@ export default function Home() {
               ) : (
                 <div className="event-gallery-grid">
                   {galleryPhotos.map((photo) => (
-                    <article className={`gallery-photo-card${photo.media_type === "video" ? " gallery-video-card" : ""}`} key={photo.id}>
+                    <article className={`gallery-photo-card${photo.media_type === "video" ? " gallery-video-card" : ""}${photo.is_pinned ? " is-pinned" : ""}`} key={photo.id}>
+                      {photo.is_pinned && <span className="gallery-pinned-badge">📌 מוצמד</span>}
                       {photo.media_type === "video" ? (
                         <video
                           className="gallery-video"
@@ -9288,13 +9475,25 @@ export default function Home() {
                           <time dateTime={photo.created_at}>{formatShortDateTime(photo.created_at)}</time>
                         </div>
                         {(photo.user_id === user.id || canManageEvents) && (
-                          <button
-                            type="button"
-                            className="member-remove-button"
-                            onClick={() => setPendingMemberAction({ type: "delete_gallery", photo })}
-                          >
-                            מחיקה
-                          </button>
+                          <div className="gallery-photo-actions">
+                            {canManageEvents && (
+                              <button
+                                type="button"
+                                className={`gallery-pin-button${photo.is_pinned ? " is-selected" : ""}`}
+                                disabled={galleryPinBusyId !== null}
+                                onClick={() => void toggleGalleryPin(photo)}
+                              >
+                                {photo.is_pinned ? "ביטול הצמדה" : "הצמדה"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="member-remove-button"
+                              onClick={() => setPendingMemberAction({ type: "delete_gallery", photo })}
+                            >
+                              מחיקה
+                            </button>
+                          </div>
                         )}
                       </div>
                     </article>

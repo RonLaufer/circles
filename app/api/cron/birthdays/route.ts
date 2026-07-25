@@ -15,6 +15,8 @@ const ISRAEL_TIME_ZONE = "Asia/Jerusalem";
 type BirthdayDispatchRow = {
   dispatch_id: string;
   birthday_name: string;
+  birthday_birth_year: number | null;
+  birthday_phone: string | null;
   recipient_name: string;
   recipient_email: string;
   circle_names: string[] | null;
@@ -99,6 +101,22 @@ function delay(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function getWhatsAppUrl(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return "";
+
+  const internationalNumber = digits.startsWith("0")
+    ? `972${digits.slice(1)}`
+    : digits;
+
+  return `https://wa.me/${internationalNumber}`;
+}
+
+function getTelephoneUrl(phone: string) {
+  const cleaned = phone.replace(/[^\d+]/g, "");
+  return cleaned ? `tel:${cleaned}` : "";
+}
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error ?? "");
 }
@@ -125,7 +143,7 @@ async function sendWithFallback({
   text: string;
   html: string;
   smtpPassword: string;
-  supportSmtpPassword: string;
+  supportSmtpPassword?: string;
 }) {
   try {
     await sendSmtpEmail({
@@ -139,8 +157,8 @@ async function sendWithFallback({
     });
     return;
   } catch (primaryError) {
-    if (!isFailureSendingMailError(primaryError)) throw primaryError;
     console.warn(`Primary SMTP account failed for birthday email to ${to}.`, getErrorMessage(primaryError));
+    if (!supportSmtpPassword) throw primaryError;
   }
 
   let lastSupportError: unknown = null;
@@ -202,9 +220,9 @@ export async function POST(request: Request) {
   const smtpPassword = process.env.SMTP_APP_PASSWORD?.replace(/\s+/g, "");
   const supportSmtpPassword = process.env.SMTP_APP_PASSWORD_FROM_SUPPORT?.replace(/\s+/g, "");
 
-  if (!smtpPassword || !supportSmtpPassword) {
+  if (!smtpPassword) {
     return NextResponse.json(
-      { message: "Birthday email SMTP settings are incomplete." },
+      { message: "Birthday email primary SMTP setting is missing." },
       { status: 503 },
     );
   }
@@ -247,12 +265,35 @@ export async function POST(request: Request) {
     }
 
     const oneCircle = circleNames.length === 1;
+    const birthYear = Number(dispatch.birthday_birth_year);
+    const currentYear = Number(israelNow.date.slice(0, 4));
+    const birthdayAge = Number.isInteger(birthYear) && birthYear > 0
+      ? currentYear - birthYear
+      : null;
+    const birthdayPhone = dispatch.birthday_phone?.trim() ?? "";
+    const birthdayWhatsAppUrl = getWhatsAppUrl(birthdayPhone);
+    const birthdayTelephoneUrl = getTelephoneUrl(birthdayPhone);
+    const contactTextLines = [
+      birthdayAge !== null && birthdayAge >= 0 ? `גיל: ${birthdayAge}` : "",
+      birthdayPhone ? `טלפון: ${birthdayPhone}` : "",
+      birthdayWhatsAppUrl ? `WhatsApp: ${birthdayWhatsAppUrl}` : "",
+    ].filter(Boolean);
+    const contactHtml = [
+      birthdayAge !== null && birthdayAge >= 0
+        ? `<p style="font-size:16px;margin:0 0 6px"><strong>גיל:</strong> ${birthdayAge}</p>`
+        : "",
+      birthdayPhone
+        ? `<p style="font-size:16px;margin:0 0 18px"><strong>טלפון:</strong> ${birthdayTelephoneUrl ? `<a href="${birthdayTelephoneUrl}" style="color:#1d4ed8">${escapeHtml(birthdayPhone)}</a>` : escapeHtml(birthdayPhone)}${birthdayWhatsAppUrl ? ` · <a href="${birthdayWhatsAppUrl}" style="color:#15803d;font-weight:700">שליחת WhatsApp</a>` : ""}</p>`
+        : "",
+    ].filter(Boolean).join("");
+
     const subject = `היום יום ההולדת של ${birthdayName}`;
     const text = [
       `שלום ${recipientName},`,
       "",
       `היום יום ההולדת של ${birthdayName}, חבר/ה ${oneCircle ? "במעגל" : "במעגלים"}:`,
       formatCircleList(circleNames),
+      ...(contactTextLines.length > 0 ? ["", ...contactTextLines] : []),
       "",
       "יום הולדת שמח! 🎉",
     ].join("\n");
@@ -266,6 +307,7 @@ export async function POST(request: Request) {
         <ul style="margin:0 0 20px;padding-right:22px">
           ${formatCircleListHtml(circleNames)}
         </ul>
+        ${contactHtml}
         <p style="font-size:18px;margin:0">יום הולדת שמח! 🎉</p>
       </div>
     `;
