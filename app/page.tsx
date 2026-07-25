@@ -30,7 +30,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.6.4";
+const APP_VERSION = "v1.1.6.5";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";

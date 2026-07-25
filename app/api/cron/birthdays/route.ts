@@ -84,7 +84,7 @@ function getIsraelDateTime(now = new Date()) {
 function isBirthdaySendWindow(hour: number, minute: number) {
   const minutesSinceMidnight = hour * 60 + minute;
   const windowStart = 9 * 60 + 20;
-  const windowEnd = 10 * 60 + 45;
+  const windowEnd = 11 * 60 + 59;
   return minutesSinceMidnight >= windowStart && minutesSinceMidnight <= windowEnd;
 }
 
@@ -236,7 +236,11 @@ export async function POST(request: Request) {
   if (error) {
     console.error("Preparing birthday email dispatches failed", error);
     return NextResponse.json(
-      { message: "Could not prepare birthday email dispatches." },
+      {
+        message: "Could not prepare birthday email dispatches.",
+        errorCode: error.code ?? null,
+        errorDetails: error.message ?? null,
+      },
       { status: error.code === "42501" ? 401 : 500 },
     );
   }
