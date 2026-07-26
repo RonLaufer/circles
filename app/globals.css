@@ -4021,7 +4021,7 @@ html.is-localhost {
   z-index: 80;
   top: calc(100% + 10px);
   left: 0;
-  width: min(360px, calc(100vw - 28px));
+  width: min(720px, calc(100vw - 28px));
   max-height: min(70vh, 560px);
   overflow: auto;
   border: 1px solid var(--line);
@@ -4059,8 +4059,10 @@ html.is-localhost {
   color: #111827;
   padding: 11px 12px;
   text-align: right;
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .notification-item.is-read {
@@ -4073,8 +4075,20 @@ html.is-localhost {
   color: #4b5563;
 }
 
+.notification-item strong,
+.notification-item span {
+  min-width: 0;
+}
+
+.notification-item span {
+  flex: 1 1 auto;
+}
+
 .notification-item small {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
   font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .danger-button {
@@ -4490,13 +4504,17 @@ html.is-localhost {
 }
 
 .notification-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 58px;
+  display: flex;
   gap: 6px;
   align-items: stretch;
 }
 
+.notification-row .notification-item {
+  flex: 1 1 auto;
+}
+
 .notification-delete-button {
+  flex: 0 0 64px;
   align-self: stretch;
   border: 0;
   border-radius: 12px;
@@ -7307,4 +7325,183 @@ body.editor-screen-open {
   overflow-wrap: anywhere;
   color: #475569;
   font-size: 0.88rem;
+}
+
+
+/* circles171: free-text actions collected inside each completed usage session */
+.system-usage-table td small.system-usage-actions {
+  margin-top: 7px;
+  color: #1e293b;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  white-space: normal;
+}
+
+/* circles172: event response during join and read-only event tables */
+.invite-attendance-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fffaf0;
+}
+
+.invite-attendance-form h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.invite-attendance-note {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.invite-attendance-note textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+}
+
+.event-table-disabled-note {
+  margin: 10px 0 16px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.event-section-disabled .bring-table,
+.event-section-disabled .ride-table,
+.event-section-disabled .ride-request-form,
+.event-section-disabled .free-bring-add-row {
+  opacity: 0.72;
+}
+
+/* circles174: wider and denser notification rows */
+@media (max-width: 760px) {
+  .notification-item {
+    flex-wrap: wrap;
+  }
+
+  .notification-item small {
+    margin-inline-start: 0;
+  }
+}
+
+
+/* circles176: full-width notification text with inline time and delete */
+.notification-row {
+  display: grid;
+  gap: 4px;
+  border-radius: 13px;
+  background: #fff7d6;
+  padding: 11px 12px 8px;
+}
+
+.notification-row.is-read {
+  background: #f3f4f6;
+}
+
+.notification-row .notification-item,
+.notification-row .notification-item.is-read {
+  width: 100%;
+  display: grid;
+  gap: 5px;
+  align-items: start;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  text-align: right;
+}
+
+.notification-row .notification-item strong,
+.notification-row .notification-item span {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: right;
+}
+
+.notification-row .notification-item span {
+  line-height: 1.45;
+}
+
+.notification-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #4b5563;
+}
+
+.notification-meta-row small {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.notification-meta-row .notification-delete-button {
+  flex: 0 0 auto;
+  align-self: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #b91c1c;
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.notification-meta-row .notification-delete-button:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+
+@media (max-width: 760px) {
+  .notification-item {
+    flex-wrap: nowrap;
+  }
+}
+
+/* circles177: disabled invite submit is waiting for a choice, not processing */
+.invite-submit-button:disabled {
+  cursor: default;
+}
+
+.invite-submit-button.is-busy:disabled {
+  cursor: wait;
+}
+
+
+/* circles178: gender-aware wording and event-join expectations */
+.invite-event-expectations {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #f8fafc;
+}
+
+.invite-event-expectations h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.invite-event-expectations ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-inline-start: 20px;
+  color: #475569;
+  font-size: 0.88rem;
+  line-height: 1.5;
 }

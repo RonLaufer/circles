@@ -250,8 +250,8 @@ export async function POST(request: Request) {
   let failed = 0;
 
   for (const dispatch of dispatches) {
-    const birthdayName = dispatch.birthday_name?.trim() || "חבר/ת מעגל";
-    const recipientName = dispatch.recipient_name?.trim() || "מנהל/ת המעגל";
+    const birthdayName = dispatch.birthday_name?.trim() || "חבר מעגל";
+    const recipientName = dispatch.recipient_name?.trim() || "מנהל המעגל";
     const recipientEmail = dispatch.recipient_email?.trim().toLowerCase();
     const circleNames = Array.from(
       new Set((dispatch.circle_names ?? []).map((name) => name.trim()).filter(Boolean)),
@@ -295,7 +295,7 @@ export async function POST(request: Request) {
     const text = [
       `שלום ${recipientName},`,
       "",
-      `היום יום ההולדת של ${birthdayName}, חבר/ה ${oneCircle ? "במעגל" : "במעגלים"}:`,
+      `היום יום ההולדת של ${birthdayName}, ${oneCircle ? "מהמעגל" : "מהמעגלים"}:`,
       formatCircleList(circleNames),
       ...(contactTextLines.length > 0 ? ["", ...contactTextLines] : []),
       "",
@@ -306,7 +306,7 @@ export async function POST(request: Request) {
       <div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.7;color:#111827;max-width:640px;margin:auto">
         <h2 style="margin:0 0 18px">שלום ${escapeHtml(recipientName)},</h2>
         <p style="font-size:16px;margin:0 0 12px">
-          היום יום ההולדת של <strong>${escapeHtml(birthdayName)}</strong>, חבר/ה ${oneCircle ? "במעגל" : "במעגלים"}:
+          היום יום ההולדת של <strong>${escapeHtml(birthdayName)}</strong>, ${oneCircle ? "מהמעגל" : "מהמעגלים"}:
         </p>
         <ul style="margin:0 0 20px;padding-right:22px">
           ${formatCircleListHtml(circleNames)}

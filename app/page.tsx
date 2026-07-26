@@ -12,6 +12,8 @@ import {
   isSupportedVideoFile,
 } from "@/lib/video-compression";
 
+type Gender = "male" | "female" | "other";
+
 type Profile = {
   id: string;
   email: string | null;
@@ -19,6 +21,7 @@ type Profile = {
   about: string;
   city: string;
   phone: string;
+  gender: Gender | null;
   birth_day: number | null;
   birth_month: number | null;
   birth_year: number | null;
@@ -30,7 +33,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.7.0";
+const APP_VERSION = "v1.1.7.9";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -175,6 +178,7 @@ type CommunityMember = {
   email: string | null;
   city: string;
   phone: string;
+  gender: Gender | null;
   avatar_url: string | null;
   google_avatar_url: string | null;
 };
@@ -190,6 +194,7 @@ type SystemAdminProfileTarget = {
 
 type SystemAdminProfileDetails = SystemAdminProfileTarget & {
   about: string;
+  gender: Gender | null;
   birth_day: number | null;
   birth_month: number | null;
   birth_year: number | null;
@@ -267,6 +272,7 @@ type EventAttendance = {
   email: string | null;
   city: string;
   phone: string;
+  gender: Gender | null;
   community_role: CommunityRole | null;
   avatar_url: string | null;
   google_avatar_url: string | null;
@@ -355,6 +361,7 @@ type EventGalleryPhoto = {
   pinned_by: string | null;
   created_at: string;
   full_name: string;
+  gender: Gender | null;
 };
 
 type EventMediaCount = {
@@ -400,6 +407,7 @@ type SystemUsageLogRow = {
   duration_seconds: number;
   started_at: string;
   ended_at: string;
+  activity_text: string;
 };
 
 type PendingMemberAction =
@@ -675,11 +683,13 @@ function LegalScreen({
   profileImageUrl,
   city,
   phone,
+  gender,
   birthDay,
   birthMonth,
   birthYear,
   onCityChange,
   onPhoneChange,
+  onGenderChange,
   onBirthDayChange,
   onBirthMonthChange,
   onBirthYearChange,
@@ -701,11 +711,13 @@ function LegalScreen({
   profileImageUrl: string | null;
   city: string;
   phone: string;
+  gender: Gender | "";
   birthDay: string;
   birthMonth: string;
   birthYear: string;
   onCityChange: (value: string) => void;
   onPhoneChange: (value: string) => void;
+  onGenderChange: (value: Gender | "") => void;
   onBirthDayChange: (value: string) => void;
   onBirthMonthChange: (value: string) => void;
   onBirthYearChange: (value: string) => void;
@@ -779,7 +791,7 @@ function LegalScreen({
             <p>
               בעת כניסה באמצעות Google מתקבלים מזהה משתמש, כתובת דוא״ל, שם ותמונת
               פרופיל, ככל ש־Google מספקת אותם. בנוסף, המשתמש יכול להוסיף מרצונו עיר,
-              מספר טלפון, תאריך לידה, תיאור אישי ותמונת פרופיל אחרת.
+              מספר טלפון, מין, תאריך לידה, תיאור אישי ותמונת פרופיל אחרת.
             </p>
             <p>
               במהלך השימוש נשמר מידע הקשור למעגלים, חברות במעגל, אירועים, תגובות
@@ -895,6 +907,20 @@ function LegalScreen({
                 />
               </label>
 
+              <label>
+                <span>מין (לא חובה)</span>
+                <select
+                  value={gender}
+                  onChange={(event) => onGenderChange(event.target.value as Gender | "")}
+                  disabled={saving}
+                >
+                  <option value="">לא צוין</option>
+                  <option value="male">זכר</option>
+                  <option value="female">נקבה</option>
+                  <option value="other">אחר</option>
+                </select>
+              </label>
+
               <BirthdayFields
                 day={birthDay}
                 month={birthMonth}
@@ -913,7 +939,12 @@ function LegalScreen({
                 onChange={(event) => onCheckedChange(event.target.checked)}
               />
               <span>
-                קראתי את תנאי השימוש ומדיניות הפרטיות, הבנתי אותם ואני מאשר/ת אותם.
+                {genderedText(
+                  gender || null,
+                  "קראתי את תנאי השימוש ומדיניות הפרטיות, הבנתי אותם ואני מאשר אותם.",
+                  "קראתי את תנאי השימוש ומדיניות הפרטיות, הבנתי אותם ואני מאשרת אותם.",
+                  "קראתי את תנאי השימוש ומדיניות הפרטיות, הבנתי אותם ואני מאשר/ת אותם.",
+                )}
               </span>
             </label>
             <button
@@ -1088,6 +1119,7 @@ function AttendanceNoteField({
 type RideRequestFormProps = {
   initialOrigin: string;
   busy: boolean;
+  disabled: boolean;
   hasExistingRequest: boolean;
   onSave: (origin: string) => void;
 };
@@ -1095,6 +1127,7 @@ type RideRequestFormProps = {
 function RideRequestForm({
   initialOrigin,
   busy,
+  disabled,
   hasExistingRequest,
   onSave,
 }: RideRequestFormProps) {
@@ -1115,13 +1148,14 @@ function RideRequestForm({
           maxLength={160}
           placeholder="לדוגמה: ראש העין או צומת מורשה"
           autoComplete="off"
+          disabled={busy || disabled}
         />
       </label>
       <button
         type="button"
         className="primary-button compact-button"
         onClick={() => onSave(origin)}
-        disabled={busy || origin.trim().length < 2}
+        disabled={busy || disabled || origin.trim().length < 2}
       >
         {busy ? "שומרים..." : hasExistingRequest ? "עדכון הבקשה" : "הוספה לטבלה"}
       </button>
@@ -1133,6 +1167,8 @@ type RideOfferControlsProps = {
   enabled: boolean;
   initialNote: string;
   busy: boolean;
+  disabled: boolean;
+  gender: Gender | null;
   onToggle: (checked: boolean) => void;
   onSave: (note: string) => void;
 };
@@ -1141,6 +1177,8 @@ function RideOfferControls({
   enabled,
   initialNote,
   busy,
+  disabled,
+  gender,
   onToggle,
   onSave,
 }: RideOfferControlsProps) {
@@ -1157,9 +1195,9 @@ function RideOfferControls({
           type="checkbox"
           checked={enabled}
           onChange={(event) => onToggle(event.target.checked)}
-          disabled={busy}
+          disabled={busy || disabled}
         />
-        <span>אני יכול/ה להציע טרמפ</span>
+        <span>{genderedText(gender, "אני יכול להציע טרמפ", "אני יכולה להציע טרמפ", "אני יכול/ה להציע טרמפ")}</span>
       </label>
       {enabled && (
         <div className="ride-offer-input-row">
@@ -1169,14 +1207,14 @@ function RideOfferControls({
             onChange={(event) => setNote(event.target.value)}
             maxLength={240}
             placeholder="הערה"
-            disabled={busy}
+            disabled={busy || disabled}
             autoComplete="off"
           />
           <button
             type="button"
             className="secondary-button compact-button"
             onClick={() => onSave(note)}
-            disabled={busy}
+            disabled={busy || disabled}
           >
             {busy ? "שומרים..." : "שמירת ההערה"}
           </button>
@@ -1699,20 +1737,56 @@ function canManageCommunity(
   return isSystemAdminEmail(email) || role === "admin";
 }
 
-function communityRoleLabel(role: CommunityRole, email: string | null | undefined) {
+function genderedText(
+  gender: Gender | null | undefined,
+  maleText: string,
+  femaleText: string,
+  unspecifiedText: string,
+) {
+  if (gender === "male") return maleText;
+  if (gender === "female") return femaleText;
+  return unspecifiedText;
+}
+
+function communityRoleLabel(
+  role: CommunityRole,
+  email: string | null | undefined,
+  gender?: Gender | null,
+) {
   if (isSystemAdminEmail(email)) return "מנהל המערכת";
-  return roleLabel(role);
+  return roleLabel(role, gender);
 }
 
-function roleLabel(role: CommunityRole) {
-  if (role === "admin") return "מנהל/ת";
-  return "חבר/ה";
+function roleLabel(role: CommunityRole, gender?: Gender | null) {
+  if (role === "admin") return genderedText(gender, "מנהל", "מנהלת", "מנהל/ת");
+  return genderedText(gender, "חבר", "חברה", "חבר/ה");
 }
 
-function attendanceStatusLabel(status: AttendanceStatus) {
-  if (status === "going") return "מגיע/ה";
+function attendanceStatusLabel(status: AttendanceStatus, gender?: Gender | null) {
+  if (status === "going") return genderedText(gender, "מגיע", "מגיעה", "מגיע/ה");
   if (status === "maybe") return "אולי";
-  return "לא מגיע/ה";
+  return genderedText(gender, "לא מגיע", "לא מגיעה", "לא מגיע/ה");
+}
+
+function eventInviteAcceptsAttendance(event: SharedEvent | null) {
+  if (!event || event.status !== "active") return false;
+
+  const eventDate = new Date(event.starts_at);
+  if (Number.isNaN(eventDate.getTime())) return false;
+
+  const now = new Date();
+  const eventDay = new Date(
+    eventDate.getFullYear(),
+    eventDate.getMonth(),
+    eventDate.getDate(),
+  ).getTime();
+  const currentDay = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+
+  return currentDay <= eventDay;
 }
 
 function effectiveAttendanceStatus(
@@ -1728,9 +1802,13 @@ function displayedAttendanceStatusLabel(
   attendance: EventAttendance,
   includeActualStatus: boolean,
 ) {
-  if (includeActualStatus && attendance.actual_status === "arrived") return "הגיע/ה";
-  if (includeActualStatus && attendance.actual_status === "not_arrived") return "לא הגיע/ה";
-  return attendanceStatusLabel(attendance.status);
+  if (includeActualStatus && attendance.actual_status === "arrived") {
+    return genderedText(attendance.gender, "הגיע", "הגיעה", "הגיע/ה");
+  }
+  if (includeActualStatus && attendance.actual_status === "not_arrived") {
+    return genderedText(attendance.gender, "לא הגיע", "לא הגיעה", "לא הגיע/ה");
+  }
+  return attendanceStatusLabel(attendance.status, attendance.gender);
 }
 
 function sortAttendanceByRoleAndName(rows: EventAttendance[]) {
@@ -1943,6 +2021,7 @@ export default function Home() {
   const [about, setAbout] = useState("");
   const [city, setCity] = useState("");
   const [phone, setPhone] = useState("");
+  const [gender, setGender] = useState<Gender | "">("");
   const [birthDay, setBirthDay] = useState("");
   const [birthMonth, setBirthMonth] = useState("");
   const [birthYear, setBirthYear] = useState("");
@@ -2075,6 +2154,7 @@ export default function Home() {
   const [adminMemberAbout, setAdminMemberAbout] = useState("");
   const [adminMemberCity, setAdminMemberCity] = useState("");
   const [adminMemberPhone, setAdminMemberPhone] = useState("");
+  const [adminMemberGender, setAdminMemberGender] = useState<Gender | "">("");
   const [adminMemberBirthDay, setAdminMemberBirthDay] = useState("");
   const [adminMemberBirthMonth, setAdminMemberBirthMonth] = useState("");
   const [adminMemberBirthYear, setAdminMemberBirthYear] = useState("");
@@ -2090,6 +2170,9 @@ export default function Home() {
   const [invitedEvent, setInvitedEvent] = useState<SharedEvent | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [joinBusy, setJoinBusy] = useState(false);
+  const [inviteAttendanceStatus, setInviteAttendanceStatus] = useState<AttendanceStatus | null>(null);
+  const [inviteAttendanceNote, setInviteAttendanceNote] = useState("");
+  const [existingMemberInviteAttendanceState, setExistingMemberInviteAttendanceState] = useState<"idle" | "checking" | "missing" | "registered">("idle");
   const [inviteStatus, setInviteStatus] = useState<"idle" | "pending">("idle");
   const [inviteDismissed, setInviteDismissed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -2297,7 +2380,7 @@ export default function Home() {
       const { data: profileRows, error: profilesError } = userIds.length
         ? await supabase
             .from("profiles")
-            .select("id,full_name,email,city,phone,avatar_url,google_avatar_url")
+            .select("id,full_name,email,city,phone,gender,avatar_url,google_avatar_url")
             .in("id", userIds)
         : { data: [], error: null };
 
@@ -2319,6 +2402,7 @@ export default function Home() {
           email: memberProfile?.email ?? null,
           city: memberProfile?.city ?? "",
           phone: memberProfile?.phone ?? "",
+          gender: (memberProfile?.gender as Gender | null) ?? null,
           avatar_url: memberProfile?.avatar_url ?? null,
           google_avatar_url: memberProfile?.google_avatar_url ?? null,
         };
@@ -2392,6 +2476,7 @@ export default function Home() {
         duration_seconds: number | string | null;
         started_at: string;
         ended_at: string;
+        activity_text?: string | null;
       }) => ({
         session_id: row.session_id,
         user_id: row.user_id,
@@ -2400,6 +2485,7 @@ export default function Home() {
         duration_seconds: Number(row.duration_seconds ?? 0),
         started_at: row.started_at,
         ended_at: row.ended_at,
+        activity_text: row.activity_text?.trim() ?? "",
       })),
     );
     setSystemUsageLoading(false);
@@ -2516,7 +2602,7 @@ export default function Home() {
       const { data: profileRows, error: profilesError } = userIds.length
         ? await supabase
             .from("profiles")
-            .select("id,full_name,email,city,phone,avatar_url,google_avatar_url")
+            .select("id,full_name,email,city,phone,gender,avatar_url,google_avatar_url")
             .in("id", userIds)
         : { data: [], error: null };
 
@@ -2544,6 +2630,7 @@ export default function Home() {
           email: attendeeProfile?.email ?? null,
           city: attendeeProfile?.city ?? "",
           phone: attendeeProfile?.phone ?? "",
+          gender: (attendeeProfile?.gender as Gender | null) ?? null,
           community_role: roleByUserId.get(attendance.user_id) ?? null,
           avatar_url: attendeeProfile?.avatar_url ?? null,
           google_avatar_url: attendeeProfile?.google_avatar_url ?? null,
@@ -2781,13 +2868,17 @@ export default function Home() {
 
     const userIds = Array.from(new Set((photoRows ?? []).map((photo) => photo.user_id)));
     const { data: profileRows } = userIds.length
-      ? await supabase.from("profiles").select("id,full_name").in("id", userIds)
+      ? await supabase.from("profiles").select("id,full_name,gender").in("id", userIds)
       : { data: [] };
-    const names = new Map((profileRows ?? []).map((row) => [row.id, row.full_name]));
-    const mappedGalleryPhotos = (photoRows ?? []).map((photo) => ({
-      ...photo,
-      full_name: names.get(photo.user_id) || "משתמש",
-    })) as EventGalleryPhoto[];
+    const profiles = new Map((profileRows ?? []).map((row) => [row.id, row]));
+    const mappedGalleryPhotos = (photoRows ?? []).map((photo) => {
+      const galleryProfile = profiles.get(photo.user_id);
+      return {
+        ...photo,
+        full_name: galleryProfile?.full_name || "משתמש",
+        gender: (galleryProfile?.gender as Gender | null) ?? null,
+      };
+    }) as EventGalleryPhoto[];
     setGalleryPhotos(mappedGalleryPhotos);
     setEventMediaCounts((current) => ({
       ...current,
@@ -3099,7 +3190,7 @@ export default function Home() {
       const googleProfile = getGoogleProfile(currentUser);
       const { data, error } = await supabase
         .from("profiles")
-        .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+        .select("id,email,full_name,about,city,phone,gender,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
         .eq("id", currentUser.id)
         .maybeSingle<Profile>();
 
@@ -3109,7 +3200,7 @@ export default function Home() {
           error.code === "42P01"
             ? "יש להריץ תחילה את קובץ ה־SQL של circles3 ב־Supabase."
             : error.code === "42703"
-              ? "יש להריץ את קובץ ה־SQL של circles130 ב־Supabase."
+              ? "יש להריץ את קובץ ה־SQL של circles177 ב־Supabase."
               : "לא הצלחנו לטעון את הפרופיל. נסו לרענן את הדף.",
         );
         setProfileLoading(false);
@@ -3127,7 +3218,7 @@ export default function Home() {
             full_name: googleProfile.fullName,
             google_avatar_url: googleProfile.avatarUrl,
           })
-          .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+          .select("id,email,full_name,about,city,phone,gender,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
           .single<Profile>();
 
         if (insertError) {
@@ -3149,7 +3240,7 @@ export default function Home() {
             google_avatar_url: googleProfile.avatarUrl,
           })
           .eq("id", currentUser.id)
-          .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+          .select("id,email,full_name,about,city,phone,gender,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
           .single<Profile>();
 
         loadedProfile = refreshedProfile ?? loadedProfile;
@@ -3160,6 +3251,7 @@ export default function Home() {
       setAbout(loadedProfile.about);
       setCity(loadedProfile.city);
       setPhone(loadedProfile.phone);
+      setGender(loadedProfile.gender ?? "");
       setBirthDay(loadedProfile.birth_day?.toString() ?? "");
       setBirthMonth(loadedProfile.birth_month?.toString() ?? "");
       setBirthYear(loadedProfile.birth_year?.toString() ?? "");
@@ -3762,7 +3854,7 @@ export default function Home() {
       (community) => community.id === invitedCommunity.id,
     );
 
-    if (!existingMembership) return;
+    if (!existingMembership || invitedEvent) return;
 
     queueMicrotask(() => {
       setSelectedCommunityId(existingMembership.id);
@@ -3785,12 +3877,20 @@ export default function Home() {
   ]);
 
   useEffect(() => {
+    if (autoJoinAfterAuth && invitedEvent) {
+      setAutoJoinAfterAuth(false);
+      autoJoinAttemptedRef.current = false;
+    }
+  }, [autoJoinAfterAuth, invitedEvent]);
+
+  useEffect(() => {
     if (
       !autoJoinAfterAuth ||
       !user ||
       !communitiesReady ||
       (!pendingShareToken && !pendingEventShareToken) ||
       !invitedCommunity ||
+      invitedEvent ||
       autoJoinAttemptedRef.current
     ) {
       return;
@@ -3815,6 +3915,73 @@ export default function Home() {
   ]);
 
   useEffect(() => {
+    setInviteAttendanceStatus(null);
+    setInviteAttendanceNote("");
+    setExistingMemberInviteAttendanceState("idle");
+  }, [invitedEvent?.id]);
+
+  useEffect(() => {
+    if (!user || !communitiesReady || !invitedCommunity || !invitedEvent) return;
+
+    const existingMembership = communities.find(
+      (community) => community.id === invitedCommunity.id,
+    );
+    if (!existingMembership) {
+      setExistingMemberInviteAttendanceState("idle");
+      return;
+    }
+
+    let cancelled = false;
+
+    const openInvitedEvent = () => {
+      if (cancelled) return;
+      setExistingMemberInviteAttendanceState("registered");
+      setSelectedCommunityId(existingMembership.id);
+      setPendingEventOpenId(invitedEvent.id);
+      setInviteDismissed(true);
+      setInviteAttendanceStatus(null);
+      setInviteAttendanceNote("");
+      clearJoinFromAddress(true);
+    };
+
+    if (!eventInviteAcceptsAttendance(invitedEvent)) {
+      queueMicrotask(openInvitedEvent);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setExistingMemberInviteAttendanceState("checking");
+    void (async () => {
+      const { data, error } = await supabase
+        .from("event_attendance")
+        .select("status,note")
+        .eq("event_id", invitedEvent.id)
+        .eq("user_id", user.id)
+        .maybeSingle<{ status: AttendanceStatus; note: string | null }>();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Checking invited event attendance failed", error);
+        setExistingMemberInviteAttendanceState("missing");
+        return;
+      }
+
+      if (data) {
+        openInvitedEvent();
+        return;
+      }
+
+      setExistingMemberInviteAttendanceState("missing");
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [communities, communitiesReady, invitedCommunity, invitedEvent, supabase, user]);
+
+  useEffect(() => {
     if (!pendingEventOpenId) return;
     const targetEvent = communityEvents.find((event) => event.id === pendingEventOpenId);
     if (!targetEvent) return;
@@ -3832,7 +3999,7 @@ export default function Home() {
     setMessage(null);
 
     const nextPath = pendingEventShareToken
-      ? `/?event=${encodeURIComponent(pendingEventShareToken)}&autojoin=1`
+      ? `/?event=${encodeURIComponent(pendingEventShareToken)}`
       : pendingShareToken
         ? `/?join=${encodeURIComponent(pendingShareToken)}&autojoin=1`
         : "/";
@@ -3911,6 +4078,8 @@ export default function Home() {
 
   function closeInvite() {
     setInviteDismissed(true);
+    setInviteAttendanceStatus(null);
+    setInviteAttendanceNote("");
     clearJoinFromAddress();
   }
 
@@ -3949,15 +4118,51 @@ export default function Home() {
 
     setMessage(null);
 
+    const invitedEventAcceptsAttendance = eventInviteAcceptsAttendance(invitedEvent);
+
+    if (invitedEventAcceptsAttendance && !inviteAttendanceStatus) {
+      setMessageTone("error");
+      setMessage("יש לבחור אם אתם מגיעים, אולי מגיעים או לא מגיעים לאירוע.");
+      return;
+    }
+
     const existingMembership = communities.find(
       (community) => community.id === invitedCommunity.id,
     );
 
     if (existingMembership) {
+      setJoinBusy(true);
+
+      if (invitedEventAcceptsAttendance && invitedEvent && inviteAttendanceStatus) {
+        const { error: attendanceError } = await supabase.rpc("join_community_by_token_with_event", {
+          target_share_token: invitedCommunity.share_token,
+          target_event_id: invitedEvent.id,
+          target_status: inviteAttendanceStatus,
+          target_note: inviteAttendanceNote,
+        });
+
+        if (attendanceError) {
+          console.error("Saving invited event attendance failed", attendanceError);
+          setMessageTone("error");
+          setMessage(
+            attendanceError.message.includes("event_capacity_exceeded")
+              ? "האירוע מלא ולא ניתן להירשם כמגיעים כרגע."
+              : attendanceError.message.includes("event_closed")
+                ? "כבר לא ניתן להירשם לאירוע הזה."
+                : `שמירת ההשתתפות לא הצליחה. ${formatSupabaseError(attendanceError)}`,
+          );
+          setJoinBusy(false);
+          return;
+        }
+      }
+
       setSelectedCommunityId(existingMembership.id);
       if (invitedEvent) setPendingEventOpenId(invitedEvent.id);
       setInviteDismissed(true);
+      setInviteAttendanceStatus(null);
+      setInviteAttendanceNote("");
       clearJoinFromAddress(true);
+      setJoinBusy(false);
       return;
     }
 
@@ -3972,17 +4177,27 @@ export default function Home() {
       return;
     }
 
-    const { data, error } = await supabase.rpc("join_community_by_token", {
-      target_share_token: invitedCommunity.share_token,
-    });
+    const joinResponse = invitedEventAcceptsAttendance && invitedEvent && inviteAttendanceStatus
+      ? await supabase.rpc("join_community_by_token_with_event", {
+          target_share_token: invitedCommunity.share_token,
+          target_event_id: invitedEvent.id,
+          target_status: inviteAttendanceStatus,
+          target_note: inviteAttendanceNote,
+        })
+      : await supabase.rpc("join_community_by_token", {
+          target_share_token: invitedCommunity.share_token,
+        });
+    const { data, error } = joinResponse;
 
     if (error || !data?.[0]) {
       console.error("Joining circle failed", error);
       setMessageTone("error");
       setMessage(
-        error
-          ? `לא הצלחנו להצטרף למעגל. ${formatSupabaseError(error)}`
-          : "לא הצלחנו להצטרף למעגל. לא התקבלה תשובה מהשרת.",
+        error?.message.includes("event_capacity_exceeded")
+          ? "האירוע מלא ולא ניתן להירשם כמגיעים כרגע."
+          : error
+            ? `לא הצלחנו להצטרף למעגל. ${formatSupabaseError(error)}`
+            : "לא הצלחנו להצטרף למעגל. לא התקבלה תשובה מהשרת.",
       );
       setAutoJoinAfterAuth(false);
       setJoinBusy(false);
@@ -4006,6 +4221,8 @@ export default function Home() {
     setSelectedCommunityId(result.community_id);
     if (invitedEvent) setPendingEventOpenId(invitedEvent.id);
     setInviteDismissed(true);
+    setInviteAttendanceStatus(null);
+    setInviteAttendanceNote("");
     clearJoinFromAddress(true);
     setMessageTone("success");
     setMessage(
@@ -4515,6 +4732,7 @@ export default function Home() {
     setAdminMemberAbout("");
     setAdminMemberCity(member.city ?? "");
     setAdminMemberPhone(member.phone ?? "");
+    setAdminMemberGender("");
     setAdminMemberBirthDay("");
     setAdminMemberBirthMonth("");
     setAdminMemberBirthYear("");
@@ -4530,7 +4748,7 @@ export default function Home() {
       console.error("Loading member profile failed", error);
       setMemberImageMessage(
         error.code === "42883" || error.code === "PGRST202"
-          ? "יש להריץ את קובץ ה־SQL של circles167 ב־Supabase."
+          ? "יש להריץ את קובץ ה־SQL של circles177 ב־Supabase."
           : "טעינת פרטי המשתמש לא הצליחה. נסו שוב.",
       );
       setAdminMemberProfileLoading(false);
@@ -4560,6 +4778,7 @@ export default function Home() {
     setAdminMemberAbout(profileDetails.about);
     setAdminMemberCity(profileDetails.city);
     setAdminMemberPhone(profileDetails.phone);
+    setAdminMemberGender(profileDetails.gender ?? "");
     setAdminMemberBirthDay(profileDetails.birth_day ? String(profileDetails.birth_day) : "");
     setAdminMemberBirthMonth(profileDetails.birth_month ? String(profileDetails.birth_month) : "");
     setAdminMemberBirthYear(profileDetails.birth_year ? String(profileDetails.birth_year) : "");
@@ -4577,6 +4796,7 @@ export default function Home() {
     setAdminMemberAbout("");
     setAdminMemberCity("");
     setAdminMemberPhone("");
+    setAdminMemberGender("");
     setAdminMemberBirthDay("");
     setAdminMemberBirthMonth("");
     setAdminMemberBirthYear("");
@@ -4633,6 +4853,7 @@ export default function Home() {
         new_about: adminMemberAbout.trim(),
         new_city: adminMemberCity.trim(),
         new_phone: adminMemberPhone.trim(),
+        new_gender: adminMemberGender || null,
         new_birth_day: adminMemberBirthDay ? Number(adminMemberBirthDay) : null,
         new_birth_month: adminMemberBirthMonth ? Number(adminMemberBirthMonth) : null,
         new_birth_year: adminMemberBirthYear ? Number(adminMemberBirthYear) : null,
@@ -4677,6 +4898,7 @@ export default function Home() {
           about: adminMemberAbout.trim(),
           city: nextCity,
           phone: nextPhone,
+          gender: adminMemberGender || null,
           birth_day: adminMemberBirthDay ? Number(adminMemberBirthDay) : null,
           birth_month: adminMemberBirthMonth ? Number(adminMemberBirthMonth) : null,
           birth_year: adminMemberBirthYear ? Number(adminMemberBirthYear) : null,
@@ -4696,7 +4918,7 @@ export default function Home() {
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
       setMemberImageMessage(
         code === "42883" || code === "42501" || code === "PGRST202"
-          ? "יש להריץ את קובץ ה־SQL של circles167 ב־Supabase."
+          ? "יש להריץ את קובץ ה־SQL של circles177 ב־Supabase."
           : "עדכון פרטי המשתמש לא הצליח. נסו שוב.",
       );
     } finally {
@@ -4748,13 +4970,14 @@ export default function Home() {
         about: about.trim(),
         city: city.trim(),
         phone: phone.trim(),
+        gender: gender || null,
         birth_day: birthDay ? Number(birthDay) : null,
         birth_month: birthMonth ? Number(birthMonth) : null,
         birth_year: birthYear ? Number(birthYear) : null,
         avatar_url: avatarUrl,
       })
       .eq("id", user.id)
-      .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+      .select("id,email,full_name,about,city,phone,gender,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
       .single<Profile>();
 
     if (error) {
@@ -4766,6 +4989,7 @@ export default function Home() {
       setAbout(data.about);
       setCity(data.city);
       setPhone(data.phone);
+      setGender(data.gender ?? "");
       setBirthDay(data.birth_day?.toString() ?? "");
       setBirthMonth(data.birth_month?.toString() ?? "");
       setBirthYear(data.birth_year?.toString() ?? "");
@@ -5341,6 +5565,11 @@ export default function Home() {
 
   async function toggleNeedContribution(need: EventBringNeed, checked: boolean) {
     if (!user || !selectedEventId) return;
+    if (!bringTableInteractive) {
+      setBringMessageTone("error");
+      setBringMessage(`כדי למלא את הטבלה יש לבחור „${attendanceStatusLabel("going", currentGender)}” באזור „ההשתתפות שלי”.`);
+      return;
+    }
     const existing = eventBringContributions.find(
       (contribution) => contribution.need_id === need.id && contribution.user_id === user.id,
     );
@@ -5415,6 +5644,7 @@ export default function Home() {
     contribution: EventBringContribution,
     value: string,
   ) {
+    if (!bringTableInteractive) return;
     setBringNoteByContribution((current) => ({ ...current, [contribution.id]: value }));
     const timeoutKey = `note-${contribution.id}`;
     const currentTimeout = bringAutoSaveTimeoutsRef.current[timeoutKey];
@@ -5477,6 +5707,11 @@ export default function Home() {
 
   async function addFreeBringContribution(itemNameOverride?: string) {
     if (!user || !selectedEventId || freeBringAddBusyRef.current) return;
+    if (!bringTableInteractive) {
+      setBringMessageTone("error");
+      setBringMessage(`כדי למלא את הטבלה יש לבחור „${attendanceStatusLabel("going", currentGender)}” באזור „ההשתתפות שלי”.`);
+      return;
+    }
     const itemName = (itemNameOverride ?? bringItemName).trim();
     if (!itemName) return;
 
@@ -5651,7 +5886,7 @@ export default function Home() {
     setManagerAttendanceAddStatus("going");
     setManagedAttendanceBusyUserId(null);
     setManagedAttendanceMessageTone("success");
-    setManagedAttendanceMessage(`${selectedMember.full_name} נוסף/ה לאירוע.`);
+    setManagedAttendanceMessage(`${selectedMember.full_name} ${genderedText(selectedMember.gender, "נוסף", "נוספה", "נוסף/ה")} לאירוע.`);
   }
 
   async function saveActualAttendance(
@@ -6075,7 +6310,9 @@ export default function Home() {
       return false;
     }
 
-    setNotifications((current) => current.filter((item) => item.id !== notification.id));
+    const remainingNotifications = notifications.filter((item) => item.id !== notification.id);
+    setNotifications(remainingNotifications);
+    if (remainingNotifications.length === 0) setNotificationsOpen(false);
     return true;
   }
 
@@ -6095,6 +6332,7 @@ export default function Home() {
     }
 
     setNotifications([]);
+    setNotificationsOpen(false);
     return true;
   }
 
@@ -6480,6 +6718,7 @@ export default function Home() {
       .update({
         city: city.trim(),
         phone: phone.trim(),
+        gender: gender || null,
         birth_day: birthDay ? Number(birthDay) : null,
         birth_month: birthMonth ? Number(birthMonth) : null,
         birth_year: birthYear ? Number(birthYear) : null,
@@ -6488,7 +6727,7 @@ export default function Home() {
         legal_version: LEGAL_VERSION,
       })
       .eq("id", user.id)
-      .select("id,email,full_name,about,city,phone,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
+      .select("id,email,full_name,about,city,phone,gender,birth_day,birth_month,birth_year,avatar_url,google_avatar_url,legal_accepted_at,legal_version")
       .single<Profile>();
 
     if (error) {
@@ -6496,13 +6735,14 @@ export default function Home() {
       setMessageTone("error");
       setMessage(
         error.code === "42703"
-          ? "יש להריץ את קובץ ה־SQL של circles130 ב־Supabase."
+          ? "יש להריץ את קובץ ה־SQL של circles177 ב־Supabase."
           : "לא הצלחנו לשמור את האישור. נסו שוב.",
       );
     } else {
       setProfile(data);
       setCity(data.city);
       setPhone(data.phone);
+      setGender(data.gender ?? "");
       setBirthDay(data.birth_day?.toString() ?? "");
       setBirthMonth(data.birth_month?.toString() ?? "");
       setBirthYear(data.birth_year?.toString() ?? "");
@@ -6625,11 +6865,13 @@ export default function Home() {
         }
         city={city}
         phone={phone}
+        gender={gender}
         birthDay={birthDay}
         birthMonth={birthMonth}
         birthYear={birthYear}
         onCityChange={setCity}
         onPhoneChange={setPhone}
+        onGenderChange={setGender}
         onBirthDayChange={setBirthDay}
         onBirthMonthChange={setBirthMonth}
         onBirthYearChange={setBirthYear}
@@ -6665,7 +6907,7 @@ export default function Home() {
           <h1 className="login-main-title">המקום שבו המעגל נפגש</h1>
           {(pendingShareToken || pendingEventShareToken) && (
             <div className="login-invite-card">
-              {inviteLoading ? (
+              {inviteLoading || existingMemberInviteAttendanceState === "checking" ? (
                 <div className="inline-loading">
                   <span className="spinner spinner-small" />
                   טוענים את ההזמנה...
@@ -6754,6 +6996,7 @@ export default function Home() {
     profile?.avatar_url ??
     profile?.google_avatar_url ??
     googleProfile.avatarUrl;
+  const inviteRequiresAttendanceChoice = eventInviteAcceptsAttendance(invitedEvent);
   const selectedCommunity =
     communities.find((community) => community.id === selectedCommunityId) ?? null;
   const editingCommunity =
@@ -6763,6 +7006,11 @@ export default function Home() {
   const editingEvent = communityEvents.find((event) => event.id === editingEventId) ?? null;
   async function saveRideRequest(originValue: string) {
     if (!user || !selectedEventId || rideBusyKey) return;
+    if (!rideTableInteractive) {
+      setRideMessageTone("error");
+      setRideMessage(`כדי למלא את טבלת הטרמפים יש לבחור „${attendanceStatusLabel("going", currentGender)}” או „אולי”.`);
+      return;
+    }
     const origin = originValue.trim();
     if (origin.length < 2) {
       setRideMessageTone("error");
@@ -6798,7 +7046,7 @@ export default function Home() {
   }
 
   async function deleteOwnRideRequest(request: EventRideRequest) {
-    if (!user || request.user_id !== user.id || rideBusyKey) return;
+    if (!user || request.user_id !== user.id || rideBusyKey || !rideTableInteractive) return;
 
     setRideBusyKey(`request-delete-${request.id}`);
     setRideMessage(null);
@@ -6824,6 +7072,11 @@ export default function Home() {
 
   async function setRideOfferChecked(request: EventRideRequest, checked: boolean) {
     if (!user || !selectedEventId || request.user_id === user.id || rideBusyKey) return;
+    if (!rideTableInteractive) {
+      setRideMessageTone("error");
+      setRideMessage(`כדי למלא את טבלת הטרמפים יש לבחור „${attendanceStatusLabel("going", currentGender)}” או „אולי”.`);
+      return;
+    }
 
     setRideOfferEnabled((current) => ({ ...current, [request.id]: checked }));
     setRideMessage(null);
@@ -6898,6 +7151,11 @@ export default function Home() {
 
   async function saveRideOffer(request: EventRideRequest, noteValue: string) {
     if (!user || !selectedEventId || request.user_id === user.id || rideBusyKey) return;
+    if (!rideTableInteractive) {
+      setRideMessageTone("error");
+      setRideMessage(`כדי למלא את טבלת הטרמפים יש לבחור „${attendanceStatusLabel("going", currentGender)}” או „אולי”.`);
+      return;
+    }
     const note = noteValue.trim();
 
     setRideBusyKey(`offer-save-${request.id}`);
@@ -7041,6 +7299,15 @@ export default function Home() {
     selectedEvent && new Date(selectedEvent.starts_at).getTime() <= Date.now(),
   );
   const ownEventAttendance = eventAttendance.find((attendance) => attendance.user_id === user.id) ?? null;
+  const systemAdminCanOverrideEventTables = isSystemAdminEmail(user.email);
+  const bringTableInteractive = Boolean(
+    systemAdminCanOverrideEventTables || ownEventAttendance?.status === "going",
+  );
+  const rideTableInteractive = Boolean(
+    systemAdminCanOverrideEventTables ||
+      ownEventAttendance?.status === "going" ||
+      ownEventAttendance?.status === "maybe",
+  );
   const goingAttendance = sortAttendanceByRoleAndName(
     eventAttendance.filter(
       (attendance) => effectiveAttendanceStatus(attendance, selectedEventHasStarted) === "going",
@@ -7119,6 +7386,7 @@ export default function Home() {
   const canManageEvents = Boolean(
     selectedCommunity && canManageCommunity(selectedCommunity.role, user.email),
   );
+  const currentGender: Gender | null = (gender || profile?.gender || null) as Gender | null;
   const eventAttendanceUserIds = new Set(eventAttendance.map((attendance) => attendance.user_id));
   const addableCommunityMembers = [...communityMembers]
     .filter((member) => !eventAttendanceUserIds.has(member.user_id))
@@ -7128,6 +7396,8 @@ export default function Home() {
       if (roleDifference !== 0) return roleDifference;
       return first.full_name.localeCompare(second.full_name, "he", { sensitivity: "base" });
     });
+  const selectedAddableCommunityMember =
+    addableCommunityMembers.find((member) => member.user_id === managerAttendanceAddUserId) ?? null;
   const visibleAttendanceGroups: Array<[string, EventAttendance[]]> = [
     ["מגיעים", goingAttendance],
     ["אולי", maybeAttendance],
@@ -7206,6 +7476,7 @@ export default function Home() {
         about !== profile.about ||
         city !== profile.city ||
         phone !== profile.phone ||
+        gender !== (profile.gender ?? "") ||
         birthDay !== (profile.birth_day?.toString() ?? "") ||
         birthMonth !== (profile.birth_month?.toString() ?? "") ||
         birthYear !== (profile.birth_year?.toString() ?? "") ||
@@ -7263,11 +7534,14 @@ export default function Home() {
         };
       case "role":
         return {
-          title: pendingMemberAction.nextRole === "admin" ? "הפיכה למנהל/ת מעגל" : "החזרה לחבר/ה רגיל/ה",
+          title:
+            pendingMemberAction.nextRole === "admin"
+              ? genderedText(pendingMemberAction.member.gender, "הפיכה למנהל מעגל", "הפיכה למנהלת מעגל", "הפיכה למנהל/ת מעגל")
+              : genderedText(pendingMemberAction.member.gender, "החזרה לחבר רגיל", "החזרה לחברה רגילה", "החזרה לחבר/ה רגיל/ה"),
           message:
             pendingMemberAction.nextRole === "admin"
-              ? `${pendingMemberAction.member.full_name} יוכל/תוכל לנהל את המעגל ולאשר בקשות הצטרפות.`
-              : `${pendingMemberAction.member.full_name} לא יוכל/תוכל עוד לנהל את המעגל.`,
+              ? `${pendingMemberAction.member.full_name} ${genderedText(pendingMemberAction.member.gender, "יוכל", "תוכל", "יוכל/תוכל")} לנהל את המעגל ולאשר בקשות הצטרפות.`
+              : `${pendingMemberAction.member.full_name} ${genderedText(pendingMemberAction.member.gender, "לא יוכל", "לא תוכל", "לא יוכל/תוכל")} עוד לנהל את המעגל.`,
           confirmLabel: "כן, לשנות",
           tone: "standard" as const,
         };
@@ -7430,25 +7704,30 @@ export default function Home() {
                   ) : (
                     <div className="notifications-list">
                       {notifications.map((notification) => (
-                        <div className="notification-row" key={notification.id}>
+                        <div
+                          className={`notification-row${notification.read_at ? " is-read" : ""}`}
+                          key={notification.id}
+                        >
                           <button
                             type="button"
-                            className={`notification-item${notification.read_at ? " is-read" : ""}`}
+                            className="notification-item"
                             onClick={() => void openNotification(notification)}
                           >
                             <strong>{notification.title}</strong>
                             {notification.body && <span>{notification.body}</span>}
+                          </button>
+                          <div className="notification-meta-row">
                             <small>{formatShortDateTime(notification.created_at)}</small>
-                          </button>
-                          <button
-                            type="button"
-                            className="notification-delete-button"
-                            onClick={() => void deleteNotification(notification)}
-                            aria-label={`מחיקת ההתראה ${notification.title}`}
-                            title="מחיקת ההתראה"
-                          >
-                            מחיקה
-                          </button>
+                            <button
+                              type="button"
+                              className="notification-delete-button"
+                              onClick={() => void deleteNotification(notification)}
+                              aria-label={`מחיקת ההתראה ${notification.title}`}
+                              title="מחיקת ההתראה"
+                            >
+                              מחיקה
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -7736,7 +8015,7 @@ export default function Home() {
                       )}
                       <div>
                         <strong>{member.full_name}</strong>
-                        <span>{roleLabel(member.role)}</span>
+                        <span>{roleLabel(member.role, member.gender)}</span>
                         <span className="member-joined-at">הצטרפות למעגל ב {formatJoinDateTime(member.joined_at)}</span>
                         {member.city && <span className="member-city">{member.city}</span>}
                         {member.phone && <PhoneLink phone={member.phone} />}
@@ -7763,7 +8042,9 @@ export default function Home() {
                                 : undefined
                             }
                           >
-                            {member.role === "admin" ? "הפיכה לחבר/ה רגיל/ה" : "הפיכה למנהל/ת"}
+                            {member.role === "admin"
+                              ? genderedText(member.gender, "הפיכה לחבר רגיל", "הפיכה לחברה רגילה", "הפיכה לחבר/ה רגיל/ה")
+                              : genderedText(member.gender, "הפיכה למנהל", "הפיכה למנהלת", "הפיכה למנהל/ת")}
                           </button>
                           {canRemoveCommunityMembers && member.user_id !== user.id && (
                             <button
@@ -7997,11 +8278,7 @@ export default function Home() {
                         <button
                           type="button"
                           className="image-zoom-button community-thumb-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openImage(getCommunityImageUrl(community.logo_url), `תמונת המעגל ${community.name}`);
-                          }}
-                          aria-label={`הגדלת תמונת המעגל ${community.name}`}
+                          aria-label={`פתיחת המעגל ${community.name}`}
                         >
                           <img
                             className="community-thumb-image"
@@ -8140,6 +8417,19 @@ export default function Home() {
                     </small>
                   </label>
 
+                  <label>
+                    <span>מין (לא חובה)</span>
+                    <select
+                      value={gender}
+                      onChange={(event) => setGender(event.target.value as Gender | "")}
+                    >
+                      <option value="">לא צוין</option>
+                      <option value="male">זכר</option>
+                      <option value="female">נקבה</option>
+                      <option value="other">אחר</option>
+                    </select>
+                  </label>
+
                   <BirthdayFields
                     day={birthDay}
                     month={birthMonth}
@@ -8274,7 +8564,7 @@ export default function Home() {
                             >
                               <strong>{row.event.title}</strong>
                               <span>{row.community.name} · {formatShortDate(row.event.starts_at)}</span>
-                              {row.attendance && <small>{attendanceStatusLabel(row.attendance.status)}</small>}
+                              {row.attendance && <small>{attendanceStatusLabel(row.attendance.status, row.attendance.gender)}</small>}
                             </button>
                           ))}
                         </div>
@@ -8368,6 +8658,11 @@ export default function Home() {
                           <small className="system-usage-session-range">
                             {formatUsageSessionRange(row.started_at, row.ended_at)}
                           </small>
+                          {row.activity_text && (
+                            <small className="system-usage-actions">
+                              פעולות: {row.activity_text}
+                            </small>
+                          )}
                         </td>
                         <td className="system-usage-duration">{formatUsageDuration(row.duration_seconds)}</td>
                       </tr>
@@ -8384,7 +8679,9 @@ export default function Home() {
         !inviteDismissed &&
         communitiesReady &&
         Boolean(invitedCommunity) &&
-        !invitedMembership &&
+        (!invitedMembership ||
+          existingMemberInviteAttendanceState === "checking" ||
+          existingMemberInviteAttendanceState === "missing") &&
         (inviteLoading || invitedCommunity) && (
         <div className="modal-backdrop" role="presentation" onMouseDown={closeInvite}>
           <section
@@ -8403,7 +8700,7 @@ export default function Home() {
               ×
             </button>
 
-            {inviteLoading ? (
+            {inviteLoading || existingMemberInviteAttendanceState === "checking" ? (
               <div className="inline-loading invite-loading">
                 <span className="spinner spinner-small" />
                 טוענים את ההזמנה...
@@ -8493,28 +8790,95 @@ export default function Home() {
                   </div>
                 ) : (
                   <>
-                    <p className="invite-approval-note">
-                      {invitedCommunity.requires_member_approval
-                        ? "ההצטרפות תישלח לאישור מנהלי המעגל."
-                        : invitedEvent
-                          ? "ההצטרפות למעגל תתבצע מיד ולאחר מכן האירוע ייפתח."
-                          : "ההצטרפות למעגל תתבצע מיד."}
-                    </p>
+                    {invitedEvent && (
+                      <div className="invite-event-expectations">
+                        <h3>מה מחכה לך באירוע?</h3>
+                        <ul>
+                          <li>לראות את פרטי האירוע, המשתתפים וקישור הניווט למקום.</li>
+                          <li>לעדכן מה מביאים לאירוע, כאשר מסמנים שמגיעים.</li>
+                          <li>לבקש טרמפ או להציע טרמפ למשתתפים אחרים.</li>
+                          <li>לכתוב בשיחה הכללית של האירוע, בדומה לקבוצת WhatsApp.</li>
+                          <li>לאחר תחילת האירוע להעלות ולראות תמונות וסרטונים בגלריה.</li>
+                          <li>לקבל עדכונים והתראות הקשורים לאירוע.</li>
+                        </ul>
+                      </div>
+                    )}
+
+                    {invitedCommunity.requires_member_approval && (
+                      <p className="invite-approval-note">
+                        ההצטרפות תישלח לאישור מנהלי המעגל.
+                      </p>
+                    )}
+
+                    {inviteRequiresAttendanceChoice && (
+                      <div className="invite-attendance-form">
+                        <h3>
+                          {genderedText(
+                            currentGender,
+                            "האם אתה מתכוון להצטרף לאירוע?",
+                            "האם את מתכוונת להצטרף לאירוע?",
+                            "האם את/ה מתכוון/נת להצטרף לאירוע?",
+                          )}
+                        </h3>
+                        <div className="attendance-status-buttons" role="group" aria-label="בחירת השתתפות באירוע">
+                          <button
+                            type="button"
+                            className={`attendance-status-button${inviteAttendanceStatus === "going" ? " is-selected" : ""}`}
+                            onClick={() => setInviteAttendanceStatus("going")}
+                            disabled={joinBusy}
+                          >
+                            {genderedText(currentGender, "כן, מגיע", "כן, מגיעה", "כן, מגיע/ה")}
+                          </button>
+                          <button
+                            type="button"
+                            className={`attendance-status-button${inviteAttendanceStatus === "maybe" ? " is-selected" : ""}`}
+                            onClick={() => setInviteAttendanceStatus("maybe")}
+                            disabled={joinBusy}
+                          >
+                            אולי
+                          </button>
+                          <button
+                            type="button"
+                            className={`attendance-status-button${inviteAttendanceStatus === "not_going" ? " is-selected" : ""}`}
+                            onClick={() => setInviteAttendanceStatus("not_going")}
+                            disabled={joinBusy}
+                          >
+                            {genderedText(currentGender, "לא, לא מגיע", "לא, לא מגיעה", "לא, לא מגיע/ה")}
+                          </button>
+                        </div>
+                        <label className="invite-attendance-note">
+                          <span>הערה</span>
+                          <textarea
+                            value={inviteAttendanceNote}
+                            onChange={(event) => setInviteAttendanceNote(event.target.value)}
+                            maxLength={500}
+                            rows={3}
+                            placeholder="אפשר לכתוב לדוגמה סיבת אי־הגעה"
+                            disabled={joinBusy}
+                          />
+                        </label>
+                      </div>
+                    )}
+
                     <div className="modal-actions invite-actions">
                       <button type="button" className="secondary-button" onClick={closeInvite}>
                         לא עכשיו
                       </button>
                       <button
                         type="button"
-                        className="primary-button"
+                        className={`primary-button invite-submit-button${joinBusy ? " is-busy" : ""}`}
                         onClick={() => void joinInvitedCircle()}
-                        disabled={joinBusy}
+                        disabled={joinBusy || (inviteRequiresAttendanceChoice && !inviteAttendanceStatus)}
                       >
                         {joinBusy
-                          ? "מצטרפים..."
-                          : invitedEvent
-                            ? "הצטרפות וכניסה לאירוע"
-                            : "הצטרפות למעגל"}
+                          ? "שומרים..."
+                          : invitedEvent && inviteRequiresAttendanceChoice
+                            ? invitedMembership
+                              ? "שמירת הבחירה וכניסה לאירוע"
+                              : "שמירת הבחירה והצטרפות לאירוע"
+                            : invitedEvent
+                              ? "כניסה לאירוע"
+                              : "הצטרפות למעגל"}
                       </button>
                     </div>
                   </>
@@ -9057,7 +9421,7 @@ export default function Home() {
             {eventManagers.length > 0 && (
               <section className="event-managers-section">
                 <div className="section-heading-compact">
-                  <h2>מנהלי/ות האירוע</h2>
+                  <h2>מנהלי האירוע</h2>
                 </div>
                 <div className="event-managers-list">
                   {eventManagers.map((manager) => (
@@ -9144,7 +9508,7 @@ export default function Home() {
                   onClick={() => setAttendanceStatus("going")}
                   disabled={savingAttendance || eventLockedForCurrentUser || selectedEventIsFull}
                 >
-                  מגיע/ה
+                  {genderedText(currentGender, "מגיע", "מגיעה", "מגיע/ה")}
                 </button>
                 <button
                   type="button"
@@ -9160,7 +9524,7 @@ export default function Home() {
                   onClick={() => setAttendanceStatus("not_going")}
                   disabled={savingAttendance || eventLockedForCurrentUser}
                 >
-                  לא מגיע/ה
+                  {genderedText(currentGender, "לא מגיע", "לא מגיעה", "לא מגיע/ה")}
                 </button>
               </div>
               {selectedEventIsFull && (
@@ -9197,11 +9561,16 @@ export default function Home() {
               </section>
             )}
 
-            {(ownEventAttendance?.status === "going" || isSystemAdminEmail(user.email)) && (
-              <section className="event-bring-section">
+            <section className={`event-bring-section${bringTableInteractive ? "" : " event-section-disabled"}`}>
                 <div className="section-heading-compact">
                   <h2>מה כל אחד מביא?</h2>
                 </div>
+
+                {!bringTableInteractive && (
+                  <p className="event-table-disabled-note">
+                    כדי למלא את הטבלה יש לבחור „{attendanceStatusLabel("going", currentGender)}” באזור „ההשתתפות שלי”.
+                  </p>
+                )}
 
                 {bringLoading ? (
                   <div className="inline-loading bring-loading">
@@ -9220,7 +9589,7 @@ export default function Home() {
                           <div className="bring-table-header" role="row">
                             <span role="columnheader">פריט</span>
                             <span role="columnheader">מי מביא</span>
-                            <span role="columnheader">אני מביא/ה</span>
+                            <span role="columnheader">{genderedText(currentGender, "אני מביא", "אני מביאה", "אני מביא/ה")}</span>
                             {selectedEvent.bring_mode === "planned" && (
                               <span role="columnheader">הערות</span>
                             )}
@@ -9292,9 +9661,11 @@ export default function Home() {
                                             void toggleNeedContribution(need, event.target.checked)
                                           }
                                           disabled={
-                                            eventLockedForCurrentUser || bringBusyKey === `need-${need.id}`
+                                            !bringTableInteractive ||
+                                            eventLockedForCurrentUser ||
+                                            bringBusyKey === `need-${need.id}`
                                           }
-                                          aria-label={`אני מביא/ה ${need.item_name}`}
+                                          aria-label={`${genderedText(currentGender, "אני מביא", "אני מביאה", "אני מביא/ה")} ${need.item_name}`}
                                         />
                                       </label>
                                     )}
@@ -9313,7 +9684,10 @@ export default function Home() {
                                               }
                                               maxLength={300}
                                               placeholder="הערה..."
-                                              disabled={eventLockedForCurrentUser && !isSystemAdminEmail(user.email)}
+                                              disabled={
+                                                (!bringTableInteractive && !isSystemAdminEmail(user.email)) ||
+                                                (eventLockedForCurrentUser && !isSystemAdminEmail(user.email))
+                                              }
                                               aria-label={`הערה עבור ${need.item_name} של ${contribution.full_name}`}
                                             />
                                           </div>
@@ -9356,12 +9730,13 @@ export default function Home() {
                                       }
                                       disabled={
                                         !canEditManualContribution ||
+                                        (!bringTableInteractive && !isSystemAdminEmail(user.email)) ||
                                         (eventLockedForCurrentUser && !isSystemAdminEmail(user.email)) ||
                                         bringBusyKey === `contribution-${contribution.id}`
                                       }
                                       aria-label={
                                         isOwnManualContribution
-                                          ? `אני מביא/ה ${contribution.item_name}`
+                                          ? `${genderedText(currentGender, "אני מביא", "אני מביאה", "אני מביא/ה")} ${contribution.item_name}`
                                           : `ביטול ${contribution.item_name} עבור ${contribution.full_name}`
                                       }
                                     />
@@ -9383,7 +9758,7 @@ export default function Home() {
                           <span>
                             {selectedEvent.bring_mode === "planned"
                               ? "אני אביא משהו שלא קיים בטבלה"
-                              : "מה אני מביא/ה?"}
+                              : genderedText(currentGender, "מה אני מביא?", "מה אני מביאה?", "מה אני מביא/ה?")}
                           </span>
                           <input
                             type="text"
@@ -9391,13 +9766,14 @@ export default function Home() {
                             onChange={(event) => setBringItemName(event.target.value)}
                             maxLength={160}
                             placeholder="לדוגמה: 2 גלידות בן & ג'ריס"
+                            disabled={!bringTableInteractive}
                           />
                         </label>
                         <button
                           type="button"
                           className="primary-button compact-button free-bring-add-button"
                           onClick={tryAddFreeBringItem}
-                          disabled={bringBusyKey === "free-add" || !bringItemName.trim()}
+                          disabled={!bringTableInteractive || bringBusyKey === "free-add" || !bringItemName.trim()}
                         >
                           הוספה לטבלה
                         </button>
@@ -9408,10 +9784,9 @@ export default function Home() {
 
                 {bringMessage && <p className={`message-box ${bringMessageTone}`}>{bringMessage}</p>}
               </section>
-            )}
 
             {!selectedEventAttendanceSelectionExpired && (
-              <section className="event-rides-section" aria-labelledby="event-rides-title">
+              <section className={`event-rides-section${rideTableInteractive ? "" : " event-section-disabled"}`} aria-labelledby="event-rides-title">
               <div className="section-heading-compact">
                 <div>
                   <h2 id="event-rides-title">טרמפים לאירוע</h2>
@@ -9419,12 +9794,19 @@ export default function Home() {
                 </div>
               </div>
 
+              {!rideTableInteractive && (
+                <p className="event-table-disabled-note">
+                  כדי למלא את טבלת הטרמפים יש לבחור „{attendanceStatusLabel("going", currentGender)}” או „אולי” באזור „ההשתתפות שלי”.
+                </p>
+              )}
+
               {!eventLockedForCurrentUser && (
                 <RideRequestForm
                   initialOrigin={
                     eventRideRequests.find((request) => request.user_id === user.id)?.origin ?? ""
                   }
                   busy={rideBusyKey === "request"}
+                  disabled={!rideTableInteractive}
                   hasExistingRequest={eventRideRequests.some((request) => request.user_id === user.id)}
                   onSave={(origin) => void saveRideRequest(origin)}
                 />
@@ -9483,7 +9865,7 @@ export default function Home() {
                                 type="button"
                                 className="member-remove-button ride-request-delete"
                                 onClick={() => void deleteOwnRideRequest(request)}
-                                disabled={offerBusy}
+                                disabled={!rideTableInteractive || offerBusy}
                               >
                                 מחיקת הבקשה
                               </button>
@@ -9496,6 +9878,8 @@ export default function Home() {
                             enabled={offerEnabled}
                             initialNote={rideOfferDrafts[request.id] ?? ownOffer?.note ?? ""}
                             busy={offerBusy}
+                            disabled={!rideTableInteractive}
+                            gender={currentGender}
                             onToggle={(checked) => void setRideOfferChecked(request, checked)}
                             onSave={(note) => void saveRideOffer(request, note)}
                           />
@@ -9663,19 +10047,19 @@ export default function Home() {
                   {managerAddAttendeeOpen && (
                     addableCommunityMembers.length > 0 ? (
                       <div className="manager-add-attendee-panel">
-                        <strong>הוספת חבר/ה מהמעגל לאירוע</strong>
+                        <strong>הוספת משתתף מהמעגל לאירוע</strong>
                         <div className="manager-add-attendee-fields">
                           <label>
-                            <span>חבר/ה</span>
+                            <span>משתתף</span>
                             <select
                               value={managerAttendanceAddUserId}
                               onChange={(event) => setManagerAttendanceAddUserId(event.target.value)}
                               disabled={managedAttendanceBusyUserId !== null}
                             >
-                              <option value="">בחירת חבר/ה מהמעגל</option>
+                              <option value="">בחירת משתתף מהמעגל</option>
                               {addableCommunityMembers.map((member) => (
                                 <option key={member.user_id} value={member.user_id}>
-                                  {member.full_name}{member.role === "admin" ? " — מנהל/ת" : ""}
+                                  {member.full_name}{member.role === "admin" ? ` — ${roleLabel("admin", member.gender)}` : ""}
                                 </option>
                               ))}
                             </select>
@@ -9689,9 +10073,9 @@ export default function Home() {
                               }
                               disabled={managedAttendanceBusyUserId !== null}
                             >
-                              <option value="going">מגיע/ה</option>
+                              <option value="going">{attendanceStatusLabel("going", selectedAddableCommunityMember?.gender)}</option>
                               <option value="maybe">אולי</option>
-                              <option value="not_going">לא מגיע/ה</option>
+                              <option value="not_going">{attendanceStatusLabel("not_going", selectedAddableCommunityMember?.gender)}</option>
                             </select>
                           </label>
                           <button
@@ -9762,14 +10146,14 @@ export default function Home() {
                               <div className="attendance-person-copy">
                                 <strong>{attendance.full_name}</strong>
                                 {attendance.community_role === "admin" && (
-                                  <span className="manager-badge">מנהל/ת</span>
+                                  <span className="manager-badge">{roleLabel("admin", attendance.gender)}</span>
                                 )}
                                 {attendance.city && <span className="attendance-city">{attendance.city}</span>}
                                 {attendance.phone && <PhoneLink phone={attendance.phone} />}
                                 {!(selectedEventHasStarted && attendance.actual_status) && (
                                   <span>{displayedAttendanceStatusLabel(attendance, selectedEventHasStarted)}</span>
                                 )}
-                                <span className="attendance-registered-at">נרשם/ה: {formatShortDateTime(attendance.created_at)}</span>
+                                <span className="attendance-registered-at">{genderedText(attendance.gender, "נרשם", "נרשמה", "נרשם/ה")}: {formatShortDateTime(attendance.created_at)}</span>
                                 {attendance.note && (
                                   <span className="attendance-registration-note">הערה: {attendance.note}</span>
                                 )}
@@ -9787,9 +10171,9 @@ export default function Home() {
                                     }
                                     disabled={managedAttendanceBusyUserId !== null}
                                   >
-                                    <option value="going">מגיע/ה</option>
+                                    <option value="going">{attendanceStatusLabel("going", attendance.gender)}</option>
                                     <option value="maybe">אולי</option>
-                                    <option value="not_going">לא מגיע/ה</option>
+                                    <option value="not_going">{attendanceStatusLabel("not_going", attendance.gender)}</option>
                                   </select>
                                 </label>
                               )}
@@ -9801,7 +10185,7 @@ export default function Home() {
                                     disabled={actualAttendanceBusyUserId !== null}
                                     onClick={() => void saveActualAttendance(attendance, "arrived")}
                                   >
-                                    הגיע/ה
+                                    {genderedText(attendance.gender, "הגיע", "הגיעה", "הגיע/ה")}
                                   </button>
                                   <button
                                     type="button"
@@ -9809,7 +10193,7 @@ export default function Home() {
                                     disabled={actualAttendanceBusyUserId !== null}
                                     onClick={() => void saveActualAttendance(attendance, "not_arrived")}
                                   >
-                                    לא הגיע/ה
+                                    {genderedText(attendance.gender, "לא הגיע", "לא הגיעה", "לא הגיע/ה")}
                                   </button>
                                 </div>
                               )}
@@ -9896,7 +10280,7 @@ export default function Home() {
               <VideoProcessStatus notice={galleryVideoNotice} />
               {!galleryCanUpload && (
                 <p className="gallery-locked-note">
-                  כל חברי/ות המעגל יכולים להוסיף תמונות וסרטונים לאחר שהאירוע התחיל.
+                  כל חברי המעגל יכולים להוסיף תמונות וסרטונים לאחר שהאירוע התחיל.
                 </p>
               )}
               {galleryLoading ? (
@@ -9919,9 +10303,9 @@ export default function Home() {
                         <button
                           type="button"
                           className="image-zoom-button gallery-photo-button"
-                          onClick={() => openImage(photo.image_url, `תמונה שהעלה/תה ${photo.full_name}`)}
+                          onClick={() => openImage(photo.image_url, `${genderedText(photo.gender, "תמונה שהעלה", "תמונה שהעלתה", "תמונה שהעלה/תה")} ${photo.full_name}`)}
                         >
-                          <img src={photo.image_url} alt={`תמונה שהעלה/תה ${photo.full_name}`} />
+                          <img src={photo.image_url} alt={`${genderedText(photo.gender, "תמונה שהעלה", "תמונה שהעלתה", "תמונה שהעלה/תה")} ${photo.full_name}`} />
                         </button>
                       )}
                       <div className="gallery-photo-meta">
@@ -10574,6 +10958,20 @@ export default function Home() {
                     inputMode="tel"
                     disabled={savingMemberImage}
                   />
+                </label>
+
+                <label>
+                  <span>מין (לא חובה)</span>
+                  <select
+                    value={adminMemberGender}
+                    onChange={(event) => setAdminMemberGender(event.target.value as Gender | "")}
+                    disabled={savingMemberImage}
+                  >
+                    <option value="">לא צוין</option>
+                    <option value="male">זכר</option>
+                    <option value="female">נקבה</option>
+                    <option value="other">אחר</option>
+                  </select>
                 </label>
 
                 <BirthdayFields

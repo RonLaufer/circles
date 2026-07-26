@@ -191,7 +191,7 @@ export async function POST(request: Request) {
         text: [
           `שלום ${recipientName},`,
           "",
-          `${requesterName} מבקש/ת להצטרף למעגל „${communityName}”.`,
+          `נשלחה בקשת הצטרפות מאת ${requesterName} למעגל „${communityName}”.`,
           "",
           "לפתיחת המעגל ולטיפול בבקשה:",
           circleUrl,
@@ -199,7 +199,7 @@ export async function POST(request: Request) {
         html: `
           <div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.7;color:#111827;max-width:640px;margin:auto">
             <h2 style="margin:0 0 18px">שלום ${safeRecipientName},</h2>
-            <p style="font-size:16px">${safeRequesterName} מבקש/ת להצטרף למעגל „${safeCommunityName}”.</p>
+            <p style="font-size:16px">נשלחה בקשת הצטרפות מאת ${safeRequesterName} למעגל „${safeCommunityName}”.</p>
             <p style="margin:26px 0">
               <a href="${circleUrl}" style="display:inline-block;background:#f59e0b;color:#111827;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:12px">
                 פתיחת המעגל וטיפול בבקשה
