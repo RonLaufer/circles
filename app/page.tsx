@@ -30,7 +30,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.6.5";
+const APP_VERSION = "v1.1.7.0";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -179,6 +179,22 @@ type CommunityMember = {
   google_avatar_url: string | null;
 };
 
+type SystemAdminProfileTarget = {
+  user_id: string;
+  full_name: string;
+  city: string;
+  phone: string;
+  avatar_url: string | null;
+  google_avatar_url: string | null;
+};
+
+type SystemAdminProfileDetails = SystemAdminProfileTarget & {
+  about: string;
+  birth_day: number | null;
+  birth_month: number | null;
+  birth_year: number | null;
+};
+
 type CommunityJoinRequest = {
   user_id: string;
   full_name: string;
@@ -241,6 +257,7 @@ type EventAttendance = {
   event_id: string;
   user_id: string;
   status: AttendanceStatus;
+  note: string;
   actual_status: ActualAttendanceStatus | null;
   actual_status_at: string | null;
   actual_status_by: string | null;
@@ -1016,6 +1033,55 @@ function WhatsAppIconLink({ phone, label }: { phone: string; label: string }) {
         />
       </svg>
     </a>
+  );
+}
+
+type AttendanceNoteFieldProps = {
+  initialNote: string;
+  statusSelected: boolean;
+  busy: boolean;
+  onSave: (note: string) => void;
+};
+
+function AttendanceNoteField({
+  initialNote,
+  statusSelected,
+  busy,
+  onSave,
+}: AttendanceNoteFieldProps) {
+  const [note, setNote] = useState(initialNote);
+
+  useEffect(() => {
+    setNote(initialNote);
+  }, [initialNote]);
+
+  const noteChanged = note.trim() !== initialNote.trim();
+
+  return (
+    <div className="attendance-note-field">
+      <label>
+        <span>הערה</span>
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          maxLength={500}
+          rows={3}
+          placeholder="לדוגמה: סיבת אי־הגעה"
+          disabled={busy || !statusSelected}
+        />
+      </label>
+      <div className="attendance-note-actions">
+        <small>{note.length} / 500</small>
+        <button
+          type="button"
+          className="secondary-button compact-button"
+          onClick={() => onSave(note)}
+          disabled={busy || !statusSelected || !noteChanged}
+        >
+          {busy ? "שומרים..." : "שמירת ההערה"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1918,6 +1984,12 @@ export default function Home() {
   const [attendanceStatus, setAttendanceStatus] = useState<AttendanceStatus | null>(null);
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [actualAttendanceBusyUserId, setActualAttendanceBusyUserId] = useState<string | null>(null);
+  const [managedAttendanceBusyUserId, setManagedAttendanceBusyUserId] = useState<string | null>(null);
+  const [managerAttendanceAddUserId, setManagerAttendanceAddUserId] = useState("");
+  const [managerAttendanceAddStatus, setManagerAttendanceAddStatus] = useState<AttendanceStatus>("going");
+  const [managerAddAttendeeOpen, setManagerAddAttendeeOpen] = useState(false);
+  const [managedAttendanceMessage, setManagedAttendanceMessage] = useState<string | null>(null);
+  const [managedAttendanceMessageTone, setManagedAttendanceMessageTone] = useState<"error" | "success">("error");
   const [attendanceMessage, setAttendanceMessage] = useState<string | null>(null);
   const [attendanceMessageTone, setAttendanceMessageTone] = useState<"error" | "success">("error");
   const [eventBringNeeds, setEventBringNeeds] = useState<EventBringNeed[]>([]);
@@ -1997,9 +2069,17 @@ export default function Home() {
   const [systemUsageLog, setSystemUsageLog] = useState<SystemUsageLogRow[]>([]);
   const [systemUsageLoading, setSystemUsageLoading] = useState(false);
   const [systemUsageError, setSystemUsageError] = useState<string | null>(null);
-  const [editingMemberImage, setEditingMemberImage] = useState<CommunityMember | null>(null);
+  const [editingMemberImage, setEditingMemberImage] = useState<SystemAdminProfileTarget | null>(null);
   const [adminMemberImage, setAdminMemberImage] = useState<SelectedImage | null>(null);
   const [adminMemberName, setAdminMemberName] = useState("");
+  const [adminMemberAbout, setAdminMemberAbout] = useState("");
+  const [adminMemberCity, setAdminMemberCity] = useState("");
+  const [adminMemberPhone, setAdminMemberPhone] = useState("");
+  const [adminMemberBirthDay, setAdminMemberBirthDay] = useState("");
+  const [adminMemberBirthMonth, setAdminMemberBirthMonth] = useState("");
+  const [adminMemberBirthYear, setAdminMemberBirthYear] = useState("");
+  const [adminMemberProfileLoading, setAdminMemberProfileLoading] = useState(false);
+  const [adminMemberProfileReady, setAdminMemberProfileReady] = useState(false);
   const [savingMemberImage, setSavingMemberImage] = useState(false);
   const [memberImageMessage, setMemberImageMessage] = useState<string | null>(null);
   const [pendingShareToken, setPendingShareToken] = useState<string | null>(null);
@@ -2415,7 +2495,7 @@ export default function Home() {
 
       const { data: attendanceRows, error: attendanceError } = await supabase
         .from("event_attendance")
-        .select("event_id,user_id,status,actual_status,actual_status_at,actual_status_by,created_at,updated_at")
+        .select("event_id,user_id,status,note,actual_status,actual_status_at,actual_status_by,created_at,updated_at")
         .eq("event_id", eventId)
         .order("updated_at", { ascending: true });
 
@@ -2456,6 +2536,7 @@ export default function Home() {
         return {
           ...attendance,
           status: attendance.status as AttendanceStatus,
+          note: attendance.note ?? "",
           actual_status: (attendance.actual_status as ActualAttendanceStatus | null) ?? null,
           actual_status_at: attendance.actual_status_at ?? null,
           actual_status_by: attendance.actual_status_by ?? null,
@@ -2547,7 +2628,10 @@ export default function Home() {
       setBringNoteByContribution(
         Object.fromEntries(
           mappedContributions
-            .filter((contribution) => contribution.user_id === user?.id)
+            .filter(
+              (contribution) =>
+                contribution.user_id === user?.id || isSystemAdminEmail(user?.email),
+            )
             .map((contribution) => [contribution.id, contribution.note ?? ""]),
         ),
       );
@@ -3474,6 +3558,9 @@ export default function Home() {
     if (!selectedEventId) {
       setEventAttendance([]);
       setAttendanceStatus(null);
+      setManagerAttendanceAddUserId("");
+      setManagerAttendanceAddStatus("going");
+      setManagedAttendanceMessage(null);
       setAttendanceMessage(null);
       setEventBringNeeds([]);
       setEventBringContributions([]);
@@ -3507,6 +3594,12 @@ export default function Home() {
       ]);
     }
   }, [communityEvents, loadEventAttendance, loadEventBringData, loadEventConversations, loadEventGallery, loadEventRides, selectedEventId]);
+
+  useEffect(() => {
+    setManagerAttendanceAddUserId("");
+    setManagerAttendanceAddStatus("going");
+    setManagedAttendanceMessage(null);
+  }, [selectedEventId]);
 
   useEffect(() => {
     if (!selectedEventId) return;
@@ -4410,15 +4503,68 @@ export default function Home() {
     return `${data.publicUrl}?v=${Date.now()}`;
   }
 
-  function openMemberImageEditor(member: CommunityMember) {
+  async function openMemberImageEditor(member: SystemAdminProfileTarget) {
     if (!user || !isSystemAdminEmail(user.email)) return;
+
     setAdminMemberImage((current) => {
       clearSelectedImage(current);
       return null;
     });
-    setAdminMemberName(member.full_name);
-    setMemberImageMessage(null);
     setEditingMemberImage(member);
+    setAdminMemberName(member.full_name);
+    setAdminMemberAbout("");
+    setAdminMemberCity(member.city ?? "");
+    setAdminMemberPhone(member.phone ?? "");
+    setAdminMemberBirthDay("");
+    setAdminMemberBirthMonth("");
+    setAdminMemberBirthYear("");
+    setMemberImageMessage(null);
+    setAdminMemberProfileReady(false);
+    setAdminMemberProfileLoading(true);
+
+    const { data, error } = await supabase.rpc("get_system_admin_profile_details", {
+      target_user_id: member.user_id,
+    });
+
+    if (error) {
+      console.error("Loading member profile failed", error);
+      setMemberImageMessage(
+        error.code === "42883" || error.code === "PGRST202"
+          ? "יש להריץ את קובץ ה־SQL של circles167 ב־Supabase."
+          : "טעינת פרטי המשתמש לא הצליחה. נסו שוב.",
+      );
+      setAdminMemberProfileLoading(false);
+      return;
+    }
+
+    const profileDetails = (Array.isArray(data) ? data[0] : data) as SystemAdminProfileDetails | null;
+    if (!profileDetails) {
+      setMemberImageMessage("פרופיל המשתמש לא נמצא.");
+      setAdminMemberProfileLoading(false);
+      return;
+    }
+
+    setEditingMemberImage((current) =>
+      current?.user_id === member.user_id
+        ? {
+            ...current,
+            full_name: profileDetails.full_name,
+            city: profileDetails.city,
+            phone: profileDetails.phone,
+            avatar_url: profileDetails.avatar_url,
+            google_avatar_url: profileDetails.google_avatar_url,
+          }
+        : current,
+    );
+    setAdminMemberName(profileDetails.full_name);
+    setAdminMemberAbout(profileDetails.about);
+    setAdminMemberCity(profileDetails.city);
+    setAdminMemberPhone(profileDetails.phone);
+    setAdminMemberBirthDay(profileDetails.birth_day ? String(profileDetails.birth_day) : "");
+    setAdminMemberBirthMonth(profileDetails.birth_month ? String(profileDetails.birth_month) : "");
+    setAdminMemberBirthYear(profileDetails.birth_year ? String(profileDetails.birth_year) : "");
+    setAdminMemberProfileReady(true);
+    setAdminMemberProfileLoading(false);
   }
 
   function closeMemberImageEditor() {
@@ -4428,6 +4574,14 @@ export default function Home() {
       return null;
     });
     setAdminMemberName("");
+    setAdminMemberAbout("");
+    setAdminMemberCity("");
+    setAdminMemberPhone("");
+    setAdminMemberBirthDay("");
+    setAdminMemberBirthMonth("");
+    setAdminMemberBirthYear("");
+    setAdminMemberProfileLoading(false);
+    setAdminMemberProfileReady(false);
     setMemberImageMessage(null);
     setEditingMemberImage(null);
   }
@@ -4437,11 +4591,26 @@ export default function Home() {
   }
 
   async function saveAdminMemberImage() {
-    if (!user || !isSystemAdminEmail(user.email) || !editingMemberImage) return;
+    if (
+      !user ||
+      !isSystemAdminEmail(user.email) ||
+      !editingMemberImage ||
+      !adminMemberProfileReady
+    ) return;
 
     const cleanName = adminMemberName.trim();
     if (!cleanName) {
       setMemberImageMessage("יש למלא שם.");
+      return;
+    }
+
+    const birthdayError = validateBirthday(
+      adminMemberBirthDay,
+      adminMemberBirthMonth,
+      adminMemberBirthYear,
+    );
+    if (birthdayError) {
+      setMemberImageMessage(birthdayError);
       return;
     }
 
@@ -4461,9 +4630,19 @@ export default function Home() {
       const { error } = await supabase.rpc("set_system_admin_profile_details", {
         target_user_id: editingMemberImage.user_id,
         new_full_name: cleanName,
+        new_about: adminMemberAbout.trim(),
+        new_city: adminMemberCity.trim(),
+        new_phone: adminMemberPhone.trim(),
+        new_birth_day: adminMemberBirthDay ? Number(adminMemberBirthDay) : null,
+        new_birth_month: adminMemberBirthMonth ? Number(adminMemberBirthMonth) : null,
+        new_birth_year: adminMemberBirthYear ? Number(adminMemberBirthYear) : null,
         new_avatar_url: avatarUrl,
       });
       if (error) throw error;
+
+      const nextAvatarUrl = avatarUrl ?? editingMemberImage.avatar_url;
+      const nextCity = adminMemberCity.trim();
+      const nextPhone = adminMemberPhone.trim();
 
       setCommunityMembers((current) =>
         current.map((member) =>
@@ -4471,16 +4650,44 @@ export default function Home() {
             ? {
                 ...member,
                 full_name: cleanName,
-                avatar_url: avatarUrl ?? member.avatar_url,
+                city: nextCity,
+                phone: nextPhone,
+                avatar_url: nextAvatarUrl,
               }
             : member,
         ),
       );
+      setEventAttendance((current) =>
+        current.map((attendance) =>
+          attendance.user_id === editingMemberImage.user_id
+            ? {
+                ...attendance,
+                full_name: cleanName,
+                city: nextCity,
+                phone: nextPhone,
+                avatar_url: nextAvatarUrl,
+              }
+            : attendance,
+        ),
+      );
+      if (profile?.id === editingMemberImage.user_id) {
+        setProfile({
+          ...profile,
+          full_name: cleanName,
+          about: adminMemberAbout.trim(),
+          city: nextCity,
+          phone: nextPhone,
+          birth_day: adminMemberBirthDay ? Number(adminMemberBirthDay) : null,
+          birth_month: adminMemberBirthMonth ? Number(adminMemberBirthMonth) : null,
+          birth_year: adminMemberBirthYear ? Number(adminMemberBirthYear) : null,
+          avatar_url: nextAvatarUrl,
+        });
+      }
+
       setAdminMemberImage((current) => {
         clearSelectedImage(current);
         return null;
       });
-      setAdminMemberName("");
       setEditingMemberImage(null);
       setMessageTone("success");
       setMessage(`הפרופיל של ${cleanName} עודכן.`);
@@ -4489,7 +4696,7 @@ export default function Home() {
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
       setMemberImageMessage(
         code === "42883" || code === "42501" || code === "PGRST202"
-          ? "יש להריץ את קובץ ה־SQL של circles143 ב־Supabase."
+          ? "יש להריץ את קובץ ה־SQL של circles167 ב־Supabase."
           : "עדכון פרטי המשתמש לא הצליח. נסו שוב.",
       );
     } finally {
@@ -5316,13 +5523,29 @@ export default function Home() {
     contribution: EventBringContribution,
     checked: boolean,
   ) {
-    if (checked || contribution.user_id !== user?.id || eventLockedForCurrentUser) return;
+    const canEditContribution =
+      contribution.user_id === user?.id || isSystemAdminEmail(user?.email);
+    if (
+      checked ||
+      !canEditContribution ||
+      (eventLockedForCurrentUser && !isSystemAdminEmail(user?.email))
+    ) {
+      return;
+    }
     await removeBringContribution(contribution);
   }
 
-  async function saveAttendance(statusOverride?: AttendanceStatus) {
+  async function saveAttendance(
+    statusOverride?: AttendanceStatus,
+    noteOverride?: string,
+  ) {
     const statusToSave = statusOverride ?? attendanceStatus;
     if (!user || !selectedEventId || !statusToSave || savingAttendance) return;
+
+    const previousAttendance = eventAttendance.find(
+      (attendance) => attendance.user_id === user.id,
+    );
+    const noteToSave = noteOverride ?? previousAttendance?.note ?? "";
 
     setSavingAttendance(true);
     setAttendanceMessage(null);
@@ -5330,13 +5553,11 @@ export default function Home() {
     const { error } = await supabase.rpc("save_event_attendance", {
       target_event_id: selectedEventId,
       target_status: statusToSave,
+      target_note: noteToSave,
     });
 
     if (error) {
       console.error("Saving event attendance failed", error);
-      const previousAttendance = eventAttendance.find(
-        (attendance) => attendance.user_id === user.id,
-      );
       setAttendanceStatus(previousAttendance?.status ?? null);
       setAttendanceMessageTone("error");
       setAttendanceMessage(
@@ -5351,6 +5572,86 @@ export default function Home() {
     await loadEventAttendance(selectedEventId);
     setSavingAttendance(false);
     setAttendanceMessage(null);
+  }
+
+  async function saveAttendanceForMember(
+    attendance: EventAttendance,
+    nextStatus: AttendanceStatus,
+  ) {
+    if (!selectedEventId || !canManageEvents || managedAttendanceBusyUserId) return;
+
+    setManagedAttendanceBusyUserId(attendance.user_id);
+    setManagedAttendanceMessage(null);
+
+    const { error } = await supabase.rpc("set_event_attendance_for_member", {
+      target_event_id: selectedEventId,
+      target_user_id: attendance.user_id,
+      target_status: nextStatus,
+    });
+
+    if (error) {
+      console.error("Saving attendance for member failed", error);
+      setManagedAttendanceMessageTone("error");
+      setManagedAttendanceMessage(
+        error.message.includes("event_capacity_exceeded")
+          ? "האירוע מלא ולא ניתן לסמן משתתף נוסף כמגיע."
+          : error.code === "42883" || error.code === "PGRST202"
+            ? "יש להריץ את קובץ ה־SQL של circles167 ב־Supabase."
+            : `עדכון ההשתתפות לא הצליח. ${formatSupabaseError(error)}`,
+      );
+      setManagedAttendanceBusyUserId(null);
+      return;
+    }
+
+    await loadEventAttendance(selectedEventId);
+    setManagedAttendanceBusyUserId(null);
+    setManagedAttendanceMessage(null);
+  }
+
+  async function addCommunityMemberToEvent() {
+    if (
+      !selectedEventId ||
+      !canManageEvents ||
+      !managerAttendanceAddUserId ||
+      managedAttendanceBusyUserId
+    ) {
+      return;
+    }
+
+    const selectedMember = communityMembers.find(
+      (member) => member.user_id === managerAttendanceAddUserId,
+    );
+    if (!selectedMember) return;
+
+    setManagedAttendanceBusyUserId(selectedMember.user_id);
+    setManagedAttendanceMessage(null);
+
+    const { error } = await supabase.rpc("set_event_attendance_for_member", {
+      target_event_id: selectedEventId,
+      target_user_id: selectedMember.user_id,
+      target_status: managerAttendanceAddStatus,
+    });
+
+    if (error) {
+      console.error("Adding circle member to event failed", error);
+      setManagedAttendanceMessageTone("error");
+      setManagedAttendanceMessage(
+        error.message.includes("event_capacity_exceeded")
+          ? "האירוע מלא ולא ניתן להוסיף משתתף נוסף כמגיע."
+          : error.code === "42883" || error.code === "PGRST202"
+            ? "יש להריץ את קובץ ה־SQL של circles167 ב־Supabase."
+            : `הוספת המשתתף לאירוע לא הצליחה. ${formatSupabaseError(error)}`,
+      );
+      setManagedAttendanceBusyUserId(null);
+      return;
+    }
+
+    await loadEventAttendance(selectedEventId);
+    setManagerAttendanceAddUserId("");
+    setManagerAttendanceAddStatus("going");
+    setManagedAttendanceBusyUserId(null);
+    setManagedAttendanceMessageTone("success");
+    setManagedAttendanceMessage(`${selectedMember.full_name} נוסף/ה לאירוע.`);
   }
 
   async function saveActualAttendance(
@@ -6818,6 +7119,15 @@ export default function Home() {
   const canManageEvents = Boolean(
     selectedCommunity && canManageCommunity(selectedCommunity.role, user.email),
   );
+  const eventAttendanceUserIds = new Set(eventAttendance.map((attendance) => attendance.user_id));
+  const addableCommunityMembers = [...communityMembers]
+    .filter((member) => !eventAttendanceUserIds.has(member.user_id))
+    .sort((first, second) => {
+      const roleDifference =
+        (first.role === "admin" ? 0 : 1) - (second.role === "admin" ? 0 : 1);
+      if (roleDifference !== 0) return roleDifference;
+      return first.full_name.localeCompare(second.full_name, "he", { sensitivity: "base" });
+    });
   const visibleAttendanceGroups: Array<[string, EventAttendance[]]> = [
     ["מגיעים", goingAttendance],
     ["אולי", maybeAttendance],
@@ -7407,8 +7717,8 @@ export default function Home() {
                           type="button"
                           className="member-avatar-edit-button"
                           onClick={() => openMemberImageEditor(member)}
-                          aria-label={`החלפת תמונת הפרופיל של ${member.full_name}`}
-                          title="החלפת תמונת פרופיל"
+                          aria-label={`עריכת הפרופיל של ${member.full_name}`}
+                          title="עריכת פרופיל"
                         >
                           <ProfileAvatar
                             imageUrl={member.avatar_url ?? member.google_avatar_url}
@@ -8860,6 +9170,13 @@ export default function Home() {
                 <p className="event-locked-message">האירוע סגור לשינויים.</p>
               )}
 
+              <AttendanceNoteField
+                initialNote={ownEventAttendance?.note ?? ""}
+                statusSelected={Boolean(attendanceStatus)}
+                busy={savingAttendance || eventLockedForCurrentUser}
+                onSave={(note) => void saveAttendance(attendanceStatus ?? undefined, note)}
+              />
+
                 <div className="attendance-form-actions">
                   {ownEventAttendance && (!eventLockedForCurrentUser || canDeleteAnyEventAttendance) && (
                     <button
@@ -8880,7 +9197,7 @@ export default function Home() {
               </section>
             )}
 
-            {ownEventAttendance?.status === "going" && (
+            {(ownEventAttendance?.status === "going" || isSystemAdminEmail(user.email)) && (
               <section className="event-bring-section">
                 <div className="section-heading-compact">
                   <h2>מה כל אחד מביא?</h2>
@@ -8945,25 +9262,48 @@ export default function Home() {
                                   </div>
 
                                   <div className="bring-table-check" role="cell">
-                                    <label className="bring-checkbox-control">
-                                      <input
-                                        type="checkbox"
-                                        checked={Boolean(ownContribution)}
-                                        onChange={(event) =>
-                                          void toggleNeedContribution(need, event.target.checked)
-                                        }
-                                        disabled={
-                                          eventLockedForCurrentUser || bringBusyKey === `need-${need.id}`
-                                        }
-                                        aria-label={`אני מביא/ה ${need.item_name}`}
-                                      />
-                                    </label>
+                                    {isSystemAdminEmail(user.email) && needContributions.length > 0 ? (
+                                      needContributions.map((contribution) => (
+                                        <label
+                                          className="bring-checkbox-control bring-table-subrow"
+                                          key={contribution.id}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked
+                                            onChange={(event) => {
+                                              if (!event.target.checked) {
+                                                void removeBringContribution(contribution);
+                                              }
+                                            }}
+                                            disabled={
+                                              bringBusyKey === `contribution-${contribution.id}`
+                                            }
+                                            aria-label={`ביטול ${need.item_name} עבור ${contribution.full_name}`}
+                                          />
+                                        </label>
+                                      ))
+                                    ) : (
+                                      <label className="bring-checkbox-control">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(ownContribution)}
+                                          onChange={(event) =>
+                                            void toggleNeedContribution(need, event.target.checked)
+                                          }
+                                          disabled={
+                                            eventLockedForCurrentUser || bringBusyKey === `need-${need.id}`
+                                          }
+                                          aria-label={`אני מביא/ה ${need.item_name}`}
+                                        />
+                                      </label>
+                                    )}
                                   </div>
 
                                   <div className="bring-table-notes" role="cell">
                                     {needContributions.length > 0 ? (
                                       needContributions.map((contribution) =>
-                                        contribution.user_id === user.id ? (
+                                        contribution.user_id === user.id || isSystemAdminEmail(user.email) ? (
                                           <div className="bring-table-subrow" key={contribution.id}>
                                             <input
                                               type="text"
@@ -8973,8 +9313,8 @@ export default function Home() {
                                               }
                                               maxLength={300}
                                               placeholder="הערה..."
-                                              disabled={eventLockedForCurrentUser}
-                                              aria-label={`הערה עבור ${need.item_name}`}
+                                              disabled={eventLockedForCurrentUser && !isSystemAdminEmail(user.email)}
+                                              aria-label={`הערה עבור ${need.item_name} של ${contribution.full_name}`}
                                             />
                                           </div>
                                         ) : (
@@ -8994,6 +9334,8 @@ export default function Home() {
                             const contribution = row.contribution;
                             const plannedMode = selectedEvent.bring_mode === "planned";
                             const isOwnManualContribution = contribution.user_id === user.id;
+                            const canEditManualContribution =
+                              isOwnManualContribution || isSystemAdminEmail(user.email);
                             return (
                               <div className="bring-table-row" role="row" key={`free-${contribution.id}`}>
                                 <div className="bring-table-item" role="cell">
@@ -9013,11 +9355,15 @@ export default function Home() {
                                         void toggleManualContribution(contribution, event.target.checked)
                                       }
                                       disabled={
-                                        !isOwnManualContribution ||
-                                        eventLockedForCurrentUser ||
+                                        !canEditManualContribution ||
+                                        (eventLockedForCurrentUser && !isSystemAdminEmail(user.email)) ||
                                         bringBusyKey === `contribution-${contribution.id}`
                                       }
-                                      aria-label={`אני מביא/ה ${contribution.item_name}`}
+                                      aria-label={
+                                        isOwnManualContribution
+                                          ? `אני מביא/ה ${contribution.item_name}`
+                                          : `ביטול ${contribution.item_name} עבור ${contribution.full_name}`
+                                      }
                                     />
                                   </label>
                                 </div>
@@ -9304,6 +9650,77 @@ export default function Home() {
             </section>
 
             <section className="event-attendees-section">
+              {canManageEvents && !attendanceLoading && (
+                <div className="manager-add-attendee-entry">
+                  <button
+                    type="button"
+                    className="primary-button manager-add-attendee-toggle"
+                    onClick={() => setManagerAddAttendeeOpen((current) => !current)}
+                  >
+                    הוספת משתתף מהמעגל
+                  </button>
+
+                  {managerAddAttendeeOpen && (
+                    addableCommunityMembers.length > 0 ? (
+                      <div className="manager-add-attendee-panel">
+                        <strong>הוספת חבר/ה מהמעגל לאירוע</strong>
+                        <div className="manager-add-attendee-fields">
+                          <label>
+                            <span>חבר/ה</span>
+                            <select
+                              value={managerAttendanceAddUserId}
+                              onChange={(event) => setManagerAttendanceAddUserId(event.target.value)}
+                              disabled={managedAttendanceBusyUserId !== null}
+                            >
+                              <option value="">בחירת חבר/ה מהמעגל</option>
+                              {addableCommunityMembers.map((member) => (
+                                <option key={member.user_id} value={member.user_id}>
+                                  {member.full_name}{member.role === "admin" ? " — מנהל/ת" : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>סטטוס הרשמה</span>
+                            <select
+                              value={managerAttendanceAddStatus}
+                              onChange={(event) =>
+                                setManagerAttendanceAddStatus(event.target.value as AttendanceStatus)
+                              }
+                              disabled={managedAttendanceBusyUserId !== null}
+                            >
+                              <option value="going">מגיע/ה</option>
+                              <option value="maybe">אולי</option>
+                              <option value="not_going">לא מגיע/ה</option>
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            className="primary-button manager-add-attendee-button"
+                            onClick={() => void addCommunityMemberToEvent()}
+                            disabled={!managerAttendanceAddUserId || managedAttendanceBusyUserId !== null}
+                          >
+                            {managedAttendanceBusyUserId === managerAttendanceAddUserId
+                              ? "מוסיפים..."
+                              : "הוספה לאירוע"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="manager-add-attendee-empty">
+                        כל חברי המעגל כבר מופיעים ברשימת המשתתפים באירוע.
+                      </p>
+                    )
+                  )}
+                </div>
+              )}
+
+              {managedAttendanceMessage && (
+                <p className={`message-box ${managedAttendanceMessageTone}`}>
+                  {managedAttendanceMessage}
+                </p>
+              )}
+
               {attendanceLoading ? (
                 <div className="inline-loading">
                   <span className="spinner spinner-small" />
@@ -9320,12 +9737,28 @@ export default function Home() {
                         <div className="attendance-people-list">
                           {rows.map((attendance) => (
                             <article className="attendance-person-card" key={attendance.user_id}>
-                              <ProfileAvatar
-                                imageUrl={attendance.avatar_url ?? attendance.google_avatar_url}
-                                name={attendance.full_name}
-                                size="small"
-                                onOpen={openImage}
-                              />
+                              {isSystemAdminEmail(user.email) ? (
+                                <button
+                                  type="button"
+                                  className="member-avatar-edit-button"
+                                  onClick={() => void openMemberImageEditor(attendance)}
+                                  aria-label={`עריכת הפרופיל של ${attendance.full_name}`}
+                                  title="עריכת פרופיל"
+                                >
+                                  <ProfileAvatar
+                                    imageUrl={attendance.avatar_url ?? attendance.google_avatar_url}
+                                    name={attendance.full_name}
+                                    size="small"
+                                  />
+                                </button>
+                              ) : (
+                                <ProfileAvatar
+                                  imageUrl={attendance.avatar_url ?? attendance.google_avatar_url}
+                                  name={attendance.full_name}
+                                  size="small"
+                                  onOpen={openImage}
+                                />
+                              )}
                               <div className="attendance-person-copy">
                                 <strong>{attendance.full_name}</strong>
                                 {attendance.community_role === "admin" && (
@@ -9337,7 +9770,29 @@ export default function Home() {
                                   <span>{displayedAttendanceStatusLabel(attendance, selectedEventHasStarted)}</span>
                                 )}
                                 <span className="attendance-registered-at">נרשם/ה: {formatShortDateTime(attendance.created_at)}</span>
+                                {attendance.note && (
+                                  <span className="attendance-registration-note">הערה: {attendance.note}</span>
+                                )}
                               </div>
+                              {canManageEvents && (
+                                <label className="manager-attendance-status-control">
+                                  <span>סטטוס הרשמה</span>
+                                  <select
+                                    value={attendance.status}
+                                    onChange={(event) =>
+                                      void saveAttendanceForMember(
+                                        attendance,
+                                        event.target.value as AttendanceStatus,
+                                      )
+                                    }
+                                    disabled={managedAttendanceBusyUserId !== null}
+                                  >
+                                    <option value="going">מגיע/ה</option>
+                                    <option value="maybe">אולי</option>
+                                    <option value="not_going">לא מגיע/ה</option>
+                                  </select>
+                                </label>
+                              )}
                               {canMarkActualAttendance && (
                                 <div className="actual-attendance-actions" aria-label={`סימון הגעה בפועל עבור ${attendance.full_name}`}>
                                   <button
@@ -10046,7 +10501,7 @@ export default function Home() {
               ×
             </button>
             <div className="section-heading-compact member-image-editor-heading">
-              <p className="section-kicker">חברי המעגל</p>
+              <p className="section-kicker">ניהול משתמש</p>
               <h2 id="member-image-editor-title">עריכת פרופיל עבור {editingMemberImage.full_name}</h2>
             </div>
 
@@ -10055,19 +10510,9 @@ export default function Home() {
                 imageUrl={adminMemberImage?.previewUrl ?? editingMemberImage.avatar_url ?? editingMemberImage.google_avatar_url}
                 name={adminMemberName || editingMemberImage.full_name}
                 size="large"
+                onOpen={openImage}
               />
             </div>
-
-            <label className="member-profile-name-field">
-              <span>שם</span>
-              <input
-                type="text"
-                value={adminMemberName}
-                onChange={(event) => setAdminMemberName(event.target.value)}
-                maxLength={120}
-                disabled={savingMemberImage}
-              />
-            </label>
 
             <input
               ref={adminMemberImageInputRef}
@@ -10085,10 +10530,75 @@ export default function Home() {
               type="button"
               className="secondary-button member-image-select-button"
               onClick={() => adminMemberImageInputRef.current?.click()}
-              disabled={savingMemberImage}
+              disabled={savingMemberImage || adminMemberProfileLoading || !adminMemberProfileReady}
             >
               בחירת תמונה חדשה
             </button>
+
+            {adminMemberProfileLoading ? (
+              <div className="inline-loading member-profile-editor-loading">
+                <span className="spinner spinner-small" />
+                טוענים את פרטי המשתמש...
+              </div>
+            ) : adminMemberProfileReady ? (
+              <div className="member-profile-editor-fields">
+                <label>
+                  <span>שם</span>
+                  <input
+                    type="text"
+                    value={adminMemberName}
+                    onChange={(event) => setAdminMemberName(event.target.value)}
+                    maxLength={120}
+                    disabled={savingMemberImage}
+                  />
+                </label>
+
+                <label>
+                  <span>עיר מגורים (לא חובה)</span>
+                  <input
+                    type="text"
+                    value={adminMemberCity}
+                    onChange={(event) => setAdminMemberCity(event.target.value)}
+                    maxLength={100}
+                    disabled={savingMemberImage}
+                  />
+                </label>
+
+                <label>
+                  <span>טלפון (לא חובה)</span>
+                  <input
+                    type="tel"
+                    value={adminMemberPhone}
+                    onChange={(event) => setAdminMemberPhone(event.target.value)}
+                    maxLength={30}
+                    inputMode="tel"
+                    disabled={savingMemberImage}
+                  />
+                </label>
+
+                <BirthdayFields
+                  day={adminMemberBirthDay}
+                  month={adminMemberBirthMonth}
+                  year={adminMemberBirthYear}
+                  onDayChange={setAdminMemberBirthDay}
+                  onMonthChange={setAdminMemberBirthMonth}
+                  onYearChange={setAdminMemberBirthYear}
+                  disabled={savingMemberImage}
+                />
+
+                <label>
+                  <span>קצת עליי</span>
+                  <textarea
+                    value={adminMemberAbout}
+                    onChange={(event) => setAdminMemberAbout(event.target.value)}
+                    maxLength={1200}
+                    rows={5}
+                    disabled={savingMemberImage}
+                  />
+                  <small>{adminMemberAbout.length} / 1200</small>
+                </label>
+              </div>
+            ) : null}
 
             {memberImageMessage && <p className="message-box error">{memberImageMessage}</p>}
 
@@ -10105,7 +10615,7 @@ export default function Home() {
                 type="button"
                 className="primary-button"
                 onClick={() => void saveAdminMemberImage()}
-                disabled={savingMemberImage || !adminMemberName.trim()}
+                disabled={savingMemberImage || !adminMemberProfileReady || !adminMemberName.trim()}
               >
                 {savingMemberImage ? "שומרים..." : "שמירת הפרטים"}
               </button>
