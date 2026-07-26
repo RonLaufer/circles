@@ -33,7 +33,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.7.9";
+const APP_VERSION = "v1.1.8.0";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -3858,7 +3858,6 @@ export default function Home() {
 
     queueMicrotask(() => {
       setSelectedCommunityId(existingMembership.id);
-      if (invitedEvent) setPendingEventOpenId(invitedEvent.id);
       setInviteDismissed(true);
       normalizeInviteAddress();
       setPendingShareToken(null);
