@@ -33,7 +33,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.8.0";
+const APP_VERSION = "v1.1.8.2";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -472,8 +472,20 @@ function CirclesMark() {
 function ProfileMenuIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="profile-menu-icon">
-      <circle cx="12" cy="8" r="4" fill="currentColor" />
-      <path d="M4.5 21a7.5 7.5 0 0 1 15 0Z" fill="currentColor" />
+      <path
+        d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M19.1 13.1c.05-.36.08-.73.08-1.1s-.03-.74-.08-1.1l2.02-1.58-1.92-3.32-2.49 1a8.7 8.7 0 0 0-1.9-1.1L14.43 3h-3.86l-.38 2.9a8.7 8.7 0 0 0-1.9 1.1l-2.49-1-1.92 3.32L5.9 10.9c-.05.36-.08.73-.08 1.1s.03.74.08 1.1l-2.02 1.58L5.8 18l2.49-1a8.7 8.7 0 0 0 1.9 1.1l.38 2.9h3.86l.38-2.9a8.7 8.7 0 0 0 1.9-1.1l2.49 1 1.92-3.32-2.02-1.58Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -8312,12 +8324,9 @@ export default function Home() {
                 <button
                   type="button"
                   className="back-button"
-                  onClick={() => {
-                    setProfileScreenOpen(false);
-                    setBrowserView({});
-                  }}
+                  onClick={() => window.history.back()}
                 >
-                  חזרה למסך הראשי
+                  חזרה
                 </button>
                 <button
                   type="button"
