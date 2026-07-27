@@ -33,7 +33,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.8.2";
+const APP_VERSION = "v1.1.8.8";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -961,7 +961,7 @@ function LegalScreen({
             </label>
             <button
               type="button"
-              className="primary-button legal-accept-button"
+              className={`primary-button legal-accept-button${saving ? " is-busy" : ""}`}
               onClick={onAccept}
               disabled={!checked || saving}
             >
@@ -2182,7 +2182,7 @@ export default function Home() {
   const [invitedEvent, setInvitedEvent] = useState<SharedEvent | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [joinBusy, setJoinBusy] = useState(false);
-  const [inviteAttendanceStatus, setInviteAttendanceStatus] = useState<AttendanceStatus | null>(null);
+  const [inviteAttendanceStatus, setInviteAttendanceStatus] = useState<AttendanceStatus | null>("going");
   const [inviteAttendanceNote, setInviteAttendanceNote] = useState("");
   const [existingMemberInviteAttendanceState, setExistingMemberInviteAttendanceState] = useState<"idle" | "checking" | "missing" | "registered">("idle");
   const [inviteStatus, setInviteStatus] = useState<"idle" | "pending">("idle");
@@ -3926,7 +3926,7 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    setInviteAttendanceStatus(null);
+    setInviteAttendanceStatus(invitedEvent ? "going" : null);
     setInviteAttendanceNote("");
     setExistingMemberInviteAttendanceState("idle");
   }, [invitedEvent?.id]);
@@ -6840,6 +6840,13 @@ export default function Home() {
   const legalConsentAccepted = Boolean(
     profile?.legal_accepted_at && profile.legal_version === LEGAL_VERSION,
   );
+  const invitedEventDisplayImageUrl =
+    invitedEvent?.image_url ?? invitedEvent?.community_logo_url ?? null;
+  const invitedEventDisplayImageAlt = invitedEvent?.image_url
+    ? `תמונת האירוע ${invitedEvent.title}`
+    : invitedEvent
+      ? `תמונת המעגל ${invitedEvent.community_name}`
+      : "";
 
   if (loading || (user && profileLoading && !profile)) {
     return (
@@ -6925,18 +6932,18 @@ export default function Home() {
                 </div>
               ) : invitedEvent ? (
                 <>
-                  {invitedEvent.image_url && (
+                  {invitedEventDisplayImageUrl && (
                     <a
                       className="image-zoom-button login-invite-image-button"
-                      href={invitedEvent.image_url}
+                      href={invitedEventDisplayImageUrl}
                       target="_blank"
                       rel="noreferrer"
-                      aria-label={`הגדלת תמונת האירוע ${invitedEvent.title}`}
+                      aria-label={`הגדלת ${invitedEventDisplayImageAlt}`}
                     >
                       <img
                         className="login-invite-image"
-                        src={invitedEvent.image_url}
-                        alt={`תמונת האירוע ${invitedEvent.title}`}
+                        src={invitedEventDisplayImageUrl}
+                        alt={invitedEventDisplayImageAlt}
                       />
                     </a>
                   )}
@@ -8717,18 +8724,18 @@ export default function Home() {
               <>
                 {invitedEvent ? (
                   <>
-                    {invitedEvent.image_url && (
+                    {invitedEventDisplayImageUrl && (
                       <button
                         type="button"
                         className="image-zoom-button invite-circle-image-button"
                         onClick={() =>
-                          openImage(invitedEvent.image_url!, `תמונת האירוע ${invitedEvent.title}`)
+                          openImage(invitedEventDisplayImageUrl, invitedEventDisplayImageAlt)
                         }
                       >
                         <img
                           className="invite-circle-image"
-                          src={invitedEvent.image_url}
-                          alt={`תמונת האירוע ${invitedEvent.title}`}
+                          src={invitedEventDisplayImageUrl}
+                          alt={invitedEventDisplayImageAlt}
                         />
                       </button>
                     )}
@@ -8800,7 +8807,7 @@ export default function Home() {
                   <>
                     {invitedEvent && (
                       <div className="invite-event-expectations">
-                        <h3>מה מחכה לך באירוע?</h3>
+                        <h3>מה מחכה לך במערכת?</h3>
                         <ul>
                           <li>לראות את פרטי האירוע, המשתתפים וקישור הניווט למקום.</li>
                           <li>לעדכן מה מביאים לאירוע, כאשר מסמנים שמגיעים.</li>
