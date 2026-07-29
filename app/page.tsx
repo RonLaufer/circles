@@ -33,7 +33,7 @@ type Profile = {
 
 type CommunityRole = "admin" | "member";
 
-const APP_VERSION = "v1.1.8.8";
+const APP_VERSION = "v1.1.9.3";
 const SOFTWARE_ICON_IMAGE = "/circles-logo.png";
 const SYSTEM_ADMIN_EMAIL = "laufer.ron@gmail.com";
 const LEGAL_VERSION = "2026-07-22";
@@ -2002,6 +2002,47 @@ function getEventShareUrl(shareToken: string) {
   return `${origin}/event/${shareToken}?v=1`;
 }
 
+function formatGoogleCalendarDate(date: Date) {
+  return date
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z");
+}
+
+function getGoogleCalendarUrl(
+  event: Pick<CommunityEvent, "title" | "description" | "location" | "starts_at" | "ends_at">,
+  shareUrl: string,
+  communityName: string,
+) {
+  const start = new Date(event.starts_at);
+  if (Number.isNaN(start.getTime())) return "https://calendar.google.com/calendar/render?action=TEMPLATE";
+
+  const parsedEnd = event.ends_at ? new Date(event.ends_at) : null;
+  const end =
+    parsedEnd && !Number.isNaN(parsedEnd.getTime()) && parsedEnd.getTime() > start.getTime()
+      ? parsedEnd
+      : new Date(start.getTime() + 60 * 60 * 1000);
+
+  const details = [
+    event.description.trim(),
+    communityName ? `מעגל: ${communityName}` : "",
+    `לצפייה באירוע במערכת מעגלים: ${shareUrl}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: event.title,
+    dates: `${formatGoogleCalendarDate(start)}/${formatGoogleCalendarDate(end)}`,
+    details,
+    location: event.location,
+    ctz: "Asia/Jerusalem",
+  });
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 function getEventShareText(event: SharedEvent | CommunityEvent, url: string) {
   return [
     `הזמנה לאירוע „${event.title}”`,
@@ -2199,6 +2240,7 @@ export default function Home() {
     profile?: boolean;
   } | null>(null);
   const directNavigationPreparedRef = useRef(false);
+  const eventReturnSummariesCheckedUserRef = useRef<string | null>(null);
 
   const refreshActiveCircleUsers = useCallback(async () => {
     if (!user) return;
@@ -3465,6 +3507,33 @@ export default function Home() {
       window.clearTimeout(timer);
     };
   }, [activePageKey]);
+
+  useEffect(() => {
+    if (!user) {
+      eventReturnSummariesCheckedUserRef.current = null;
+      return;
+    }
+
+    if (eventReturnSummariesCheckedUserRef.current === user.id) return;
+    eventReturnSummariesCheckedUserRef.current = user.id;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase.rpc("prepare_event_return_summaries");
+      if (error) {
+        console.error("Preparing event return summaries failed", error);
+        return;
+      }
+
+      if (!cancelled && Number(data ?? 0) > 0) {
+        await loadNotifications();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadNotifications, supabase, user]);
 
   useEffect(() => {
     if (!user) {
@@ -9338,17 +9407,25 @@ export default function Home() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  שיתוף האירוע
+                  <span className="event-share-button-label">
+                    <span>שיתוף</span>
+                    <span>האירוע</span>
+                  </span>
+                </a>
+                <a
+                  className="secondary-button compact-button"
+                  href={getGoogleCalendarUrl(
+                    selectedEvent,
+                    getEventShareUrl(selectedEvent.share_token),
+                    selectedCommunity.name,
+                  )}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  הוספה ליומן Google
                 </a>
                 {canManageEvents && (
                   <>
-                    <button
-                      type="button"
-                      className="secondary-button compact-button"
-                      onClick={() => void openDirectEventClone(selectedEvent)}
-                    >
-                      שכפול האירוע
-                    </button>
                     <button
                       type="button"
                       className="primary-button compact-button"
@@ -10159,13 +10236,18 @@ export default function Home() {
                                 />
                               )}
                               <div className="attendance-person-copy">
-                                <strong>{attendance.full_name}</strong>
-                                {attendance.community_role === "admin" && (
-                                  <span className="manager-badge">{roleLabel("admin", attendance.gender)}</span>
-                                )}
+                                <div className="attendance-person-name-row">
+                                  <strong>{attendance.full_name}</strong>
+                                  <span className="attendance-role-label">
+                                    {roleLabel(
+                                      attendance.community_role === "admin" ? "admin" : "member",
+                                      attendance.gender,
+                                    )}
+                                  </span>
+                                </div>
                                 {attendance.city && <span className="attendance-city">{attendance.city}</span>}
                                 {attendance.phone && <PhoneLink phone={attendance.phone} />}
-                                {!(selectedEventHasStarted && attendance.actual_status) && (
+                                {!canManageEvents && !(selectedEventHasStarted && attendance.actual_status) && (
                                   <span>{displayedAttendanceStatusLabel(attendance, selectedEventHasStarted)}</span>
                                 )}
                                 <span className="attendance-registered-at">{genderedText(attendance.gender, "נרשם", "נרשמה", "נרשם/ה")}: {formatShortDateTime(attendance.created_at)}</span>
@@ -10173,24 +10255,40 @@ export default function Home() {
                                   <span className="attendance-registration-note">הערה: {attendance.note}</span>
                                 )}
                               </div>
-                              {canManageEvents && (
-                                <label className="manager-attendance-status-control">
-                                  <span>סטטוס הרשמה</span>
-                                  <select
-                                    value={attendance.status}
-                                    onChange={(event) =>
-                                      void saveAttendanceForMember(
-                                        attendance,
-                                        event.target.value as AttendanceStatus,
-                                      )
-                                    }
-                                    disabled={managedAttendanceBusyUserId !== null}
-                                  >
-                                    <option value="going">{attendanceStatusLabel("going", attendance.gender)}</option>
-                                    <option value="maybe">אולי</option>
-                                    <option value="not_going">{attendanceStatusLabel("not_going", attendance.gender)}</option>
-                                  </select>
-                                </label>
+                              {(canManageEvents || (canDeleteAnyEventAttendance && attendance.user_id !== user.id)) && (
+                                <div className="attendance-management-row">
+                                  {canManageEvents && (
+                                    <label className="manager-attendance-status-control">
+                                      <span className="sr-only">סטטוס הרשמה</span>
+                                      <select
+                                        aria-label={`שינוי סטטוס ההרשמה של ${attendance.full_name}`}
+                                        value={attendance.status}
+                                        onChange={(event) =>
+                                          void saveAttendanceForMember(
+                                            attendance,
+                                            event.target.value as AttendanceStatus,
+                                          )
+                                        }
+                                        disabled={managedAttendanceBusyUserId !== null}
+                                      >
+                                        <option value="going">{attendanceStatusLabel("going", attendance.gender)}</option>
+                                        <option value="maybe">אולי</option>
+                                        <option value="not_going">{attendanceStatusLabel("not_going", attendance.gender)}</option>
+                                      </select>
+                                    </label>
+                                  )}
+                                  {canDeleteAnyEventAttendance && attendance.user_id !== user.id && (
+                                    <button
+                                      type="button"
+                                      className="member-remove-button attendance-row-delete-button"
+                                      onClick={() =>
+                                        setPendingMemberAction({ type: "attendance", attendance })
+                                      }
+                                    >
+                                      מחיקה
+                                    </button>
+                                  )}
+                                </div>
                               )}
                               {canMarkActualAttendance && (
                                 <div className="actual-attendance-actions" aria-label={`סימון הגעה בפועל עבור ${attendance.full_name}`}>
@@ -10211,17 +10309,6 @@ export default function Home() {
                                     {genderedText(attendance.gender, "לא הגיע", "לא הגיעה", "לא הגיע/ה")}
                                   </button>
                                 </div>
-                              )}
-                              {canDeleteAnyEventAttendance && attendance.user_id !== user.id && (
-                                <button
-                                  type="button"
-                                  className="member-remove-button attendance-row-delete-button"
-                                  onClick={() =>
-                                    setPendingMemberAction({ type: "attendance", attendance })
-                                  }
-                                >
-                                  מחיקה
-                                </button>
                               )}
                             </article>
                           ))}
@@ -10389,7 +10476,7 @@ export default function Home() {
       {eventFormOpen && selectedCommunity && (
         <div className="event-editor-screen">
           <section className="event-editor-card-clean" aria-labelledby="event-form-title">
-            <div className="clean-editor-toolbar">
+            <div className="clean-editor-toolbar event-editor-toolbar">
               <button
                 type="button"
                 className="back-button"
@@ -10398,6 +10485,16 @@ export default function Home() {
               >
                 חזרה
               </button>
+              {editingEvent && (
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  onClick={() => void openDirectEventClone(editingEvent)}
+                  disabled={savingEvent}
+                >
+                  שכפול האירוע
+                </button>
+              )}
             </div>
 
             <h2 id="event-form-title" className="visually-hidden">

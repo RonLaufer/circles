@@ -3005,6 +3005,7 @@ html.is-localhost {
 .event-detail-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 9px;
 }
 
@@ -7690,4 +7691,92 @@ html.is-localhost {
   background: var(--amber);
   color: #111111;
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
+
+/* circles191: Google Calendar action and clone inside event editor */
+.event-editor-toolbar {
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 680px) {
+  .event-detail-actions > a.compact-button,
+  .event-detail-actions > button.compact-button {
+    flex: 1 1 calc(50% - 5px);
+  }
+}
+
+
+/* circles192: compact attendee controls and two-line event share on mobile */
+.attendance-person-name-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.attendance-role-label {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.attendance-management-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+.attendance-management-row .manager-attendance-status-control {
+  min-width: 118px;
+  margin-inline-start: 0;
+}
+
+.attendance-management-row .attendance-row-delete-button {
+  margin-inline-start: 0;
+  align-self: center;
+}
+
+.event-share-button-label {
+  display: inline-flex;
+  gap: 0.25em;
+}
+
+@media (max-width: 760px) {
+  .attendance-person-card {
+    align-items: flex-start;
+  }
+
+  .attendance-management-row {
+    flex-basis: 100%;
+    width: 100%;
+    margin-inline-start: 0;
+  }
+
+  .attendance-management-row .manager-attendance-status-control {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .attendance-management-row .manager-attendance-status-control select {
+    width: 100%;
+  }
+
+  .attendance-management-row .attendance-row-delete-button {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 680px) {
+  .event-share-button-label {
+    display: grid;
+    gap: 0;
+    line-height: 1.15;
+    text-align: center;
+  }
 }
